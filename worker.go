@@ -1,8 +1,9 @@
 package agilepool
 
 import (
-	"runtime/debug"
 	"time"
+
+	"github.com/Yiming1997/go-agile-pool/utils"
 )
 
 type worker struct {
@@ -88,7 +89,7 @@ loop:
 func (w *worker) runTask(task Task) {
 	defer func() {
 		if p := recover(); p != nil {
-			w.pool.logger.Printf("worker exits from panic: %v\n%s\n", p, debug.Stack())
+			w.pool.logger.Printf("worker exits from panic: %v\n%s\n", p, utils.Stack(2))
 		}
 	}()
 	defer w.pool.done()
