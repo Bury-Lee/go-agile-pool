@@ -22,13 +22,13 @@ const (
 	defaultBacklogDecayFactor   = 0.3
 
 	// internalTaskQueueCap is the fixed capacity of the internal handoff
-	// channel. It is small and NOT user-configurable — workers pull from
+	// channel. It is small and NOT user-configurable �� workers pull from
 	// taskBuf for the bulk of queued tasks, so channel capacity does not
 	// couple memory usage or scaler behaviour to the queue-size setting.
-	internalTaskQueueCap = 64
+	internalTaskQueueCap = 10000
 
 	// taskChunkSize is the number of Task slots per chunk in the linked-list
-	// buffer. Small, fixed-size chunks avoid the ~2× memory overhead of a
+	// buffer. Small, fixed-size chunks avoid the ~2�� memory overhead of a
 	// single dynamically-growing slice and reduce GC pressure.
 	taskChunkSize = 4096
 
@@ -244,7 +244,7 @@ func (p *Pool) submit(ctx context.Context, task Task) {
 	// Forward: pop from head and try to send to handoff channel.
 	// This wakes a polling worker immediately without waiting for
 	// the next scaler tick. If the channel is full the task is
-	// re-queued at the tail — workers drain chunks anyway.
+	// re-queued at the tail �� workers drain chunks anyway.
 	if t, ok := p.popHead(); ok {
 		select {
 		case p.taskQueue <- t:
@@ -294,7 +294,7 @@ func (p *Pool) popHead() (Task, bool) {
 			return nil, false
 		}
 	}
-	// Head caught up to tail in the same chunk → queue drained.
+	// Head caught up to tail in the same chunk �� queue drained.
 	if p.headChunk == p.tailChunk && p.headIdx >= p.tailIdx {
 		p.headChunk = nil
 		p.tailChunk = nil
@@ -428,7 +428,7 @@ func (p *Pool) scaleIfNeeded() {
 	// The channel is fixed at internalTaskQueueCap (64), so its
 	// contribution is bounded and does not couple scaler behaviour
 	// to user configuration. It is still needed to prevent a task
-	// that was forwarded buf→channel from being orphaned when the
+	// that was forwarded buf��channel from being orphaned when the
 	// worker goes idle while the channel still holds work.
 	totalBacklog := bufDepth + int64(len(p.taskQueue))
 
@@ -440,7 +440,7 @@ func (p *Pool) scaleIfNeeded() {
 	}
 
 	// Backlog-weighted target: treat backlog as additional incoming tasks.
-	// decayFactor is dynamically adjusted by bufPressure — when the overflow
+	// decayFactor is dynamically adjusted by bufPressure �� when the overflow
 	// buffer is deep relative to the drain rate, the scaler becomes more
 	// aggressive; when it's shallow, the configured decayFactor dominates.
 	if totalBacklog > 0 {
@@ -448,11 +448,11 @@ func (p *Pool) scaleIfNeeded() {
 			// Cold start: spawn enough to drain the backlog (up to capacity).
 			target = totalBacklog
 		} else if consumeMed > 0 {
-			// bufPressure ∈ [0,1]: how many 100ms cycles needed to drain buf alone.
+			// bufPressure �� [0,1]: how many 100ms cycles needed to drain buf alone.
 			bufCycles := float64(bufDepth) / consumeMed
 			bufPressure := min(1.0, bufCycles*0.15)
 
-			// dynamicDecay ∈ [decayFactor, 1.0].
+			// dynamicDecay �� [decayFactor, 1.0].
 			dynamicDecay := p.config.backlogDecayFactor +
 				(1-p.config.backlogDecayFactor)*bufPressure
 

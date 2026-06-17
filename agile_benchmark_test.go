@@ -89,7 +89,7 @@ func BenchmarkAgilePoolSequentialLinkedList(b *testing.B) {
 		pool := agilepool.NewPool(agilepool.NewConfig(
 			agilepool.WithCleanPeriod(500*time.Millisecond),
 			agilepool.WithTaskQueueSize(100000),
-			agilepool.WithWorkerNumCapacity(50000),
+			agilepool.WithWorkerNumCapacity(20000),
 			agilepool.WithIdleContainerType(agilepool.LinkedListType),
 		))
 		for j := 0; j < taskCount; j++ {
