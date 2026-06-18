@@ -20,7 +20,7 @@ func BenchmarkAgilePoolMinHeap(b *testing.B) {
 		pool := agilepool.NewPool(agilepool.NewConfig(
 			agilepool.WithCleanPeriod(500*time.Millisecond),
 			agilepool.WithTaskQueueSize(10000),
-			agilepool.WithWorkerNumCapacity(20000),
+			agilepool.WithWorkerNumCapacity(50000),
 			agilepool.WithIdleContainerType(agilepool.MinHeapType),
 		))
 
@@ -44,7 +44,7 @@ func BenchmarkAgilePoolLinkedList(b *testing.B) {
 		pool := agilepool.NewPool(agilepool.NewConfig(
 			agilepool.WithCleanPeriod(500*time.Millisecond),
 			agilepool.WithTaskQueueSize(10000),
-			agilepool.WithWorkerNumCapacity(20000),
+			agilepool.WithWorkerNumCapacity(50000),
 			agilepool.WithIdleContainerType(agilepool.LinkedListType),
 		))
 
@@ -68,7 +68,7 @@ func BenchmarkAgilePoolSequentialMinHeap(b *testing.B) {
 		pool := agilepool.NewPool(agilepool.NewConfig(
 			agilepool.WithCleanPeriod(500*time.Millisecond),
 			agilepool.WithTaskQueueSize(10000),
-			agilepool.WithWorkerNumCapacity(100000),
+			agilepool.WithWorkerNumCapacity(20000),
 			agilepool.WithIdleContainerType(agilepool.MinHeapType),
 		))
 
@@ -128,7 +128,7 @@ type phase struct {
 	tokens int
 }
 
-// dispenseTokens 令牌发放函数：按 phases 定义的速率向 tokenCh 发放令牌
+// dispenseTokens distributes tokens to tokenCh at the rate defined by phases
 func dispenseTokens(b *testing.B, shard int, tokenCh chan struct{}, phases []phase, tickInterval time.Duration) {
 	ticker := time.NewTicker(tickInterval)
 	defer ticker.Stop()
@@ -145,7 +145,7 @@ func dispenseTokens(b *testing.B, shard int, tokenCh chan struct{}, phases []pha
 	close(tokenCh)
 }
 
-// submitTasks 任务提交函数：从 tokenCh 获取令牌并提交任务
+// submitTasks receives tokens from tokenCh and submits tasks to the pool
 func submitTasks(pool *agilepool.Pool, tokenCh chan struct{}, submitterCount int, wg *sync.WaitGroup, submittedCount *int64) {
 	for g := 0; g < submitterCount; g++ {
 		wg.Add(1)
@@ -165,14 +165,14 @@ func submitTasks(pool *agilepool.Pool, tokenCh chan struct{}, submitterCount int
 // burst 20w ~ 150w tasks per sec, 10 shards
 func BenchmarkAgilePoolBurstMinHeap(b *testing.B) {
 	const (
-		submitterCount  = 20000   // 并发提交
-		baseRatePerSec  = 200000  // 基础速率/s
-		burstRatePerSec = 1500000 // 突发速率/s
+		submitterCount  = 20000   // concurrent submitters
+		baseRatePerSec  = 200000  // base rate/sec
+		burstRatePerSec = 1500000 // burst rate/sec
 		tickInterval    = time.Millisecond
 		ticksPerSec     = int(time.Second / tickInterval) // 1000
 		basePerTick     = baseRatePerSec / ticksPerSec    // 200
 		burstPerTick    = burstRatePerSec / ticksPerSec   // 1500
-		numShards       = 10                              // 分片(单chan无法支持大量submitter)
+		numShards       = 10                              // sharding (single chan cannot support many submitters)
 	)
 
 	phases := []phase{
@@ -211,14 +211,14 @@ func BenchmarkAgilePoolBurstMinHeap(b *testing.B) {
 
 func BenchmarkAgilePoolBurstLinkedList(b *testing.B) {
 	const (
-		submitterCount  = 20000   // 并发提交
-		baseRatePerSec  = 200000  // 基础速率/s
-		burstRatePerSec = 1500000 // 突发速率/s
+		submitterCount  = 20000   // concurrent submitters
+		baseRatePerSec  = 200000  // base rate/sec
+		burstRatePerSec = 1500000 // burst rate/sec
 		tickInterval    = time.Millisecond
 		ticksPerSec     = int(time.Second / tickInterval) // 1000
 		basePerTick     = baseRatePerSec / ticksPerSec    // 200
 		burstPerTick    = burstRatePerSec / ticksPerSec   // 1500
-		numShards       = 10                              // 分片(单chan无法支持大量submitter)
+		numShards       = 10                              // sharding (single chan cannot support many submitters)
 	)
 
 	phases := []phase{

@@ -103,6 +103,13 @@ type Pool struct {
 	chunkLen       int64      // total tasks across all chunks (replaces len(taskBuf))
 	taskMu         sync.Mutex // protects the chunked buffer
 	overflowClosed bool       // prevents spool after Close
+	chunkPool      sync.Pool  // recycles consumed taskChunk nodes
+
+	// pendingTasks counts all submitted tasks that have not yet started
+	// processing. Unlike buf+channel occupancy, it includes submitters
+	// blocked on p.taskQueue <- task, giving the scaler full visibility
+	// into true demand regardless of buffer saturation.
+	pendingTasks int64
 
 	// ---- rate statistics for adaptive scaling ----
 	submitCount  int64 // atomic, tasks submitted per window
@@ -144,6 +151,8 @@ func NewPool(c *Config) *Pool {
 	p.submitHist = newHistogram(submitBuckets, c.statsWindowSize)
 	p.consumeHist = newHistogram(consumeBuckets, c.statsWindowSize)
 	p.exitHist = newHistogram(exitBuckets, c.statsWindowSize)
+
+	p.chunkPool.New = func() interface{} { return &taskChunk{} }
 
 	p.workerPool.New = func() interface{} {
 		atomic.AddInt64(&p.workerCreateCount, 1)
@@ -198,6 +207,7 @@ func (p *Pool) submit(ctx context.Context, task Task) {
 	}
 	atomic.AddInt64(&p.submitCount, 1)
 	p.wg.Add(1)
+	atomic.AddInt64(&p.pendingTasks, 1)
 
 	// Cold start: if no goroutine is running, spawn one immediately.
 	if atomic.LoadInt64(&p.runningWorkersNum) == 0 {
@@ -211,7 +221,7 @@ func (p *Pool) submit(ctx context.Context, task Task) {
 		select {
 		case p.taskQueue <- task:
 		default:
-			p.wg.Done()
+			p.done()
 		}
 		return
 	}
@@ -227,7 +237,7 @@ func (p *Pool) submit(ctx context.Context, task Task) {
 	p.taskMu.Lock()
 	if p.overflowClosed {
 		p.taskMu.Unlock()
-		p.wg.Done()
+		p.done()
 		return
 	}
 
@@ -259,13 +269,13 @@ func (p *Pool) submit(ctx context.Context, task Task) {
 // Must be called with taskMu held.
 func (p *Pool) pushTail(task Task) {
 	if p.tailChunk == nil {
-		c := &taskChunk{}
+		c := p.chunkPool.Get().(*taskChunk)
 		p.tailChunk = c
 		p.headChunk = c
 		p.tailIdx = 0
 		p.headIdx = 0
 	} else if p.tailIdx >= taskChunkSize {
-		c := &taskChunk{}
+		c := p.chunkPool.Get().(*taskChunk)
 		p.tailChunk.next = c
 		p.tailChunk = c
 		p.tailIdx = 0
@@ -283,9 +293,10 @@ func (p *Pool) popHead() (Task, bool) {
 		return nil, false
 	}
 	if p.headIdx >= taskChunkSize {
-		// Advance to next chunk; let GC collect the exhausted one.
+		// Advance to next chunk; recycle the exhausted one.
 		next := p.headChunk.next
 		p.headChunk.next = nil
+		p.chunkPool.Put(p.headChunk)
 		p.headChunk = next
 		p.headIdx = 0
 		if p.headChunk == nil {
@@ -296,6 +307,8 @@ func (p *Pool) popHead() (Task, bool) {
 	}
 	// Head caught up to tail in the same chunk �� queue drained.
 	if p.headChunk == p.tailChunk && p.headIdx >= p.tailIdx {
+		p.headChunk.next = nil
+		p.chunkPool.Put(p.headChunk)
 		p.headChunk = nil
 		p.tailChunk = nil
 		p.headIdx = 0
@@ -419,18 +432,15 @@ func (p *Pool) scaleIfNeeded() {
 	submitMed, consumeMed, exitMed := p.getMedianRates()
 	running := atomic.LoadInt64(&p.runningWorkersNum)
 
-	// Read chunkLen under its lock so the scaler sees task backlog.
+	// Read chunkLen under its lock -- still needed for bufPressure below.
 	p.taskMu.Lock()
 	bufDepth := p.chunkLen
 	p.taskMu.Unlock()
 
-	// totalBacklog sums buf (primary queue) and channel occupancy.
-	// The channel is fixed at internalTaskQueueCap (64), so its
-	// contribution is bounded and does not couple scaler behaviour
-	// to user configuration. It is still needed to prevent a task
-	// that was forwarded buf��channel from being orphaned when the
-	// worker goes idle while the channel still holds work.
-	totalBacklog := bufDepth + int64(len(p.taskQueue))
+	// totalBacklog uses pendingTasks (atomic), covering all submitted
+	// tasks not yet started, including submitters blocked on the
+	// handoff channel that are invisible to bufDepth + len(taskQueue).
+	totalBacklog := atomic.LoadInt64(&p.pendingTasks)
 
 	var target int64
 
@@ -650,6 +660,7 @@ func (p *Pool) Wait() {
 }
 
 func (p *Pool) done() {
+	atomic.AddInt64(&p.pendingTasks, -1)
 	p.wg.Done()
 }
 
