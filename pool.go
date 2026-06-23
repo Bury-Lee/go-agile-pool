@@ -201,8 +201,6 @@ func (p *Pool) SubmitCtx(ctx context.Context, task Task) {
 	})
 }
 
-func (p *Pool) submitWith(ctx context.Context, task Task) {}
-
 func (p *Pool) submit(ctx context.Context, task Task) {
 	if atomic.LoadInt32(&p.closed) == 1 {
 		return
