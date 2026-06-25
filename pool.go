@@ -590,3 +590,29 @@ func (p *Pool) GetRunningWorkersNum() int64 {
 func (p *Pool) GetWorkerCreateCount() int64 {
 	return atomic.LoadInt64(&p.workerCreateCount)
 }
+
+// GetTaskQueueLen returns the number of tasks currently queued in the
+// handoff channel (taskQueue), i.e. tasks submitted but not yet picked
+// up by a worker. This is a snapshot of len(taskQueue) and does not
+// include tasks waiting in the chunked overflow buffer.
+func (p *Pool) GetTaskQueueLen() int {
+	// 获取未进入队列的任务(提交但是未执行)
+	return len(p.taskQueue)
+}
+
+// GetIdleWorkerCount returns the number of workers currently parked in
+// the idle container, waiting to be reused. These workers are not
+// actively processing tasks.
+func (p *Pool) GetIdleWorkerCount() int64 {
+	//获取空闲worker数量
+	return p.idleWorks.Len()
+}
+
+// 获取上限,使用函数显得更专业
+func (p *Pool) GetCapacity() int64 {
+	return p.capacity
+}
+
+func (p *Pool) GetSubmitCount() int64 { //返回每次每个窗口的提交次数
+	return p.submitCount
+}
