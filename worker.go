@@ -1,6 +1,7 @@
 package agilepool
 
 import (
+	"context"
 	"sync/atomic"
 	"time"
 )
@@ -116,6 +117,16 @@ loop:
 
 func (w *worker) runTask(task Task) {
 	atomic.AddInt64(&w.pool.consumeCount, 1)
+
+	// 提取 timing 上下文,触发队列等待耗时记录
+	if ct, ok := task.(*contextTask); ok {
+		ct.ctx = context.WithValue(ct.ctx, StartedAt, time.Now())
+		defer func() { //最后记录完成时间
+			ct.ctx = context.WithValue(ct.ctx, CompletedAt, time.Now())
+			SendByContext(ct.ctx, w.pool.sampleRate)
+		}()
+	}
+
 	defer func() {
 		if p := recover(); p != nil {
 			w.pool.logger.Printf("worker exits from panic: %v\n%s\n", p, Stack(1))
