@@ -212,9 +212,9 @@ func (p *Pool) SubmitCtx(ctx context.Context, task Task) {
 
 func (p *Pool) submit(ctx context.Context, task Task) {
 	// Stamp submit time and propagate the timing context to contextTask
-	// so workers can read it via task.(*contextTask).ctx.
+	// so workers can read it via task.(*contextTask).countInfo.
 	if ct, ok := task.(*contextTask); ok {
-		ctx = context.WithValue(context.Background(), SubmittedAt, time.Now()) //新建一个统计使用的ctx
+		ctx = context.WithValue(context.Background(), SubmittedAt, time.Now()) // Create a fresh context from context.Background() for timing stats only, avoiding data races on the caller's context
 		ct.countInfo = ctx
 	}
 	if atomic.LoadInt32(&p.closed) == 1 {
@@ -236,7 +236,7 @@ func (p *Pool) submit(ctx context.Context, task Task) {
 		select {
 		case p.taskQueue <- task:
 			if ct, ok := task.(*contextTask); ok {
-				ctx = context.WithValue(ctx, EnqueuedAt, time.Now()) //更新,此处可以确保只有该一个线程修改该统计ctx
+				ctx = context.WithValue(ctx, EnqueuedAt, time.Now()) // Update enqueue time inside the select branch; only one goroutine touches this stats ctx, no extra sync needed
 				ct.countInfo = ctx
 			}
 		default:
@@ -249,7 +249,7 @@ func (p *Pool) submit(ctx context.Context, task Task) {
 	select {
 	case p.taskQueue <- task:
 		// Fast-path success: stamp enqueue time.
-		ctx = context.WithValue(ctx, EnqueuedAt, time.Now()) //同上
+		ctx = context.WithValue(ctx, EnqueuedAt, time.Now()) // Same as above: stamp enqueue time in the fast-path select branch
 		if ct, ok := task.(*contextTask); ok {
 			ct.countInfo = ctx
 		}
@@ -353,7 +353,7 @@ func (p *Pool) popHead() (Task, bool) {
 type contextTask struct {
 	ctx       context.Context
 	task      Task
-	countInfo context.Context //只为了统计信息而加入的ctx,只允许程序修改,用户不应该进行任何修改和使用
+	countInfo context.Context // Standalone context for timing stats only, maintained internally; callers must not read or modify
 }
 
 func (t *contextTask) Process() {

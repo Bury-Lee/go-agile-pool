@@ -121,7 +121,7 @@ func (w *worker) runTask(task Task) {
 	// Extract timing context to trigger queue wait duration recording
 	if ct, ok := task.(*contextTask); ok {
 		sendCtx := context.WithValue(ct.countInfo, StartedAt, time.Now())
-		// Create a new context to avoid data race with submit() - never modify ct.ctx directly
+		// Create a new context to avoid data race with submit() - never modify ct.countInfo directly
 		defer func() { // Record completion time at the end
 			sendCtx = context.WithValue(sendCtx, CompletedAt, time.Now())
 			SendByContext(sendCtx, w.pool.sampleRate)
