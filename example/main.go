@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	agilepool "github.com/Yiming1997/agilePool"
+	agilepool "github.com/Yiming1997/agilePool/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
