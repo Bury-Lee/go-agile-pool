@@ -213,9 +213,9 @@ func (p *Pool) SubmitCtx(ctx context.Context, task Task) {
 func (p *Pool) submit(ctx context.Context, task Task) {
 	// Stamp submit time and propagate the timing context to contextTask
 	// so workers can read it via task.(*contextTask).ctx.
-	ctx = context.WithValue(ctx, SubmittedAt, time.Now())
 	if ct, ok := task.(*contextTask); ok {
-		ct.ctx = ctx
+		ctx = context.WithValue(context.Background(), SubmittedAt, time.Now()) //新建一个统计使用的ctx
+		ct.countInfo = ctx
 	}
 	if atomic.LoadInt32(&p.closed) == 1 {
 		return
@@ -235,9 +235,9 @@ func (p *Pool) submit(ctx context.Context, task Task) {
 	if p.config.workMode == NONBLOCK { // non-blocking mode: drop on full queue
 		select {
 		case p.taskQueue <- task:
-			ctx = context.WithValue(ctx, EnqueuedAt, time.Now())
 			if ct, ok := task.(*contextTask); ok {
-				ct.ctx = ctx
+				ctx = context.WithValue(ctx, EnqueuedAt, time.Now()) //更新,此处可以确保只有该一个线程修改该统计ctx
+				ct.countInfo = ctx
 			}
 		default:
 			p.done()
@@ -249,9 +249,9 @@ func (p *Pool) submit(ctx context.Context, task Task) {
 	select {
 	case p.taskQueue <- task:
 		// Fast-path success: stamp enqueue time.
-		ctx = context.WithValue(ctx, EnqueuedAt, time.Now())
+		ctx = context.WithValue(ctx, EnqueuedAt, time.Now()) //同上
 		if ct, ok := task.(*contextTask); ok {
-			ct.ctx = ctx
+			ct.countInfo = ctx
 		}
 		return
 	default:
@@ -351,8 +351,9 @@ func (p *Pool) popHead() (Task, bool) {
 }
 
 type contextTask struct {
-	ctx  context.Context
-	task Task
+	ctx       context.Context
+	task      Task
+	countInfo context.Context //只为了统计信息而加入的ctx,只允许程序修改,用户不应该进行任何修改和使用
 }
 
 func (t *contextTask) Process() {
