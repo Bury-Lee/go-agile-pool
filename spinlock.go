@@ -53,7 +53,7 @@ func (s *spinLock) Lock() {
 		if atomic.CompareAndSwapUint32(&s.state, 0, 1) {
 			return
 		}
-		if i%yieldInterval == 0 {
+		if (i+1)%yieldInterval == 0 {
 			runtime.Gosched()
 		}
 	}
