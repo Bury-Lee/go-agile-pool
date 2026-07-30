@@ -109,16 +109,13 @@ func (w *worker) runTask(task Task) {
 
 	w.pool.dispatchTaskStarted(task)
 
-	var recovered any
 	defer func() {
-		w.pool.done()
-		w.pool.dispatchTaskCompleted(task, recovered)
-	}()
-	defer func() {
-		if p := recover(); p != nil {
-			recovered = p
+		p := recover()
+		if p != nil {
 			w.pool.logger.Printf("worker exits from panic: %v\n%s\n", p, Stack(1))
 		}
+		w.pool.done()
+		w.pool.dispatchTaskCompleted(task, p)
 	}()
 	task.Process()
 }
