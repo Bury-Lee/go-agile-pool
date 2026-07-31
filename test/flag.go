@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"math"
@@ -399,31 +400,70 @@ func newTaskWithWG(durFn func() time.Duration, wg *sync.WaitGroup) agilepool.Tas
 	})
 }
 
+// submitTimed creates a timing-enabled Context and submits the task via
+// SubmitCtx so that TimingHook can record per-task lifecycle timestamps.
+func submitTimed(pool *agilepool.Pool, durFn func() time.Duration) {
+	pc := agilepool.NewContext(context.Background())
+	pc.EnableTiming()
+	pool.SubmitCtx(pc, agilepool.TaskFunc(func() error {
+		time.Sleep(durFn())
+		return nil
+	}))
+}
+
+// submitTimedWithWG is like submitTimed but calls wg.Done on completion.
+func submitTimedWithWG(pool *agilepool.Pool, durFn func() time.Duration, wg *sync.WaitGroup) {
+	pc := agilepool.NewContext(context.Background())
+	pc.EnableTiming()
+	pool.SubmitCtx(pc, agilepool.TaskFunc(func() error {
+		defer wg.Done()
+		time.Sleep(durFn())
+		return nil
+	}))
+}
+
+// submitSimple submits a task directly without Context or timing overhead.
+// Used when --nohook is passed to avoid the cost of NewContext/SubmitCtx.
+func submitSimple(pool *agilepool.Pool, durFn func() time.Duration) {
+	pool.Submit(newTask(durFn))
+}
+
+// submitSimpleWithWG is like submitSimple but calls wg.Done on completion.
+func submitSimpleWithWG(pool *agilepool.Pool, durFn func() time.Duration, wg *sync.WaitGroup) {
+	pool.Submit(newTaskWithWG(durFn, wg))
+}
+
 // runSubmitter dispatches task submission according to SubmitConfig.
 // Blocks until all tasks are submitted and processed.
-func runSubmitter(pool *agilepool.Pool, cfg SubmitConfig, numTasks int, durFn func() time.Duration) {
+func runSubmitter(pool *agilepool.Pool, cfg SubmitConfig, numTasks int, durFn func() time.Duration, nohook bool) {
 	switch cfg.Type {
 	case SubmitImmediate:
-		runImmediate(pool, numTasks, durFn)
+		runImmediate(pool, numTasks, durFn, nohook)
 	case SubmitLinear:
-		runTimedSubmit(pool, numTasks, durFn, time.Duration(cfg.IntervalMs)*time.Millisecond, time.Duration(cfg.JitterMs)*time.Millisecond, false)
+		runTimedSubmit(pool, numTasks, durFn, time.Duration(cfg.IntervalMs)*time.Millisecond, time.Duration(cfg.JitterMs)*time.Millisecond, false, nohook)
 	case SubmitConstant:
-		runTimedSubmit(pool, numTasks, durFn, time.Duration(cfg.IntervalMs)*time.Millisecond, 0, true)
+		runTimedSubmit(pool, numTasks, durFn, time.Duration(cfg.IntervalMs)*time.Millisecond, 0, true, nohook)
 	case SubmitPoisson:
-		runTimedSubmit(pool, numTasks, durFn, time.Duration(cfg.PoissonMeanMs)*time.Millisecond, 0, false)
+		runTimedSubmit(pool, numTasks, durFn, time.Duration(cfg.PoissonMeanMs)*time.Millisecond, 0, false, nohook)
 	case SubmitPhased:
-		runPhased(pool, cfg, durFn)
+		runPhased(pool, cfg, durFn, nohook)
 	}
 }
 
-func runImmediate(pool *agilepool.Pool, n int, durFn func() time.Duration) {
-	for i := 0; i < n; i++ {
-		pool.Submit(newTask(durFn))
+func runImmediate(pool *agilepool.Pool, n int, durFn func() time.Duration, nohook bool) {
+	if nohook {
+		for i := 0; i < n; i++ {
+			submitSimple(pool, durFn)
+		}
+	} else {
+		for i := 0; i < n; i++ {
+			submitTimed(pool, durFn)
+		}
 	}
 	pool.Wait()
 }
 
-func runTimedSubmit(pool *agilepool.Pool, n int, durFn func() time.Duration, baseInterval, jitter time.Duration, isConstant bool) {
+func runTimedSubmit(pool *agilepool.Pool, n int, durFn func() time.Duration, baseInterval, jitter time.Duration, isConstant bool, nohook bool) {
 	var wg sync.WaitGroup
 	wg.Add(n)
 
@@ -431,7 +471,11 @@ func runTimedSubmit(pool *agilepool.Pool, n int, durFn func() time.Duration, bas
 		baseNs := float64(baseInterval)
 		jitterNs := float64(jitter)
 		for i := 0; i < n; i++ {
-			pool.Submit(newTaskWithWG(durFn, &wg))
+			if nohook {
+				submitSimpleWithWG(pool, durFn, &wg)
+			} else {
+				submitTimedWithWG(pool, durFn, &wg)
+			}
 
 			var delay time.Duration
 			switch {
@@ -458,7 +502,7 @@ func runTimedSubmit(pool *agilepool.Pool, n int, durFn func() time.Duration, bas
 // Each shard has its own token channel, a dispenser goroutine, and
 // multiple submitters. Tokens control the submission rate; the pool's
 // worker capacity caps actual concurrency.
-func runPhased(pool *agilepool.Pool, cfg SubmitConfig, durFn func() time.Duration) {
+func runPhased(pool *agilepool.Pool, cfg SubmitConfig, durFn func() time.Duration, nohook bool) {
 	if len(cfg.Phases) == 0 {
 		return
 	}
@@ -479,7 +523,7 @@ func runPhased(pool *agilepool.Pool, cfg SubmitConfig, durFn func() time.Duratio
 	for s := 0; s < shards; s++ {
 		tokenCh := make(chan struct{}, 10000)
 		go dispenseTokens(tokenCh, cfg.Phases, shards, s)
-		submitPhasedTasks(pool, tokenCh, submittersPerShard, &submitWG, &totalSubmitted, durFn)
+		submitPhasedTasks(pool, tokenCh, submittersPerShard, &submitWG, &totalSubmitted, durFn, nohook)
 	}
 
 	submitWG.Wait()
@@ -524,14 +568,18 @@ func dispenseTokens(tokenCh chan<- struct{}, phases []Phase, shards, shardID int
 
 // submitPhasedTasks launches submitters that read tokens and submit real
 // tasks (with durFn) to the pool. Stops when the token channel is closed.
-func submitPhasedTasks(pool *agilepool.Pool, tokenCh <-chan struct{}, submitters int, wg *sync.WaitGroup, total *int64, durFn func() time.Duration) {
+func submitPhasedTasks(pool *agilepool.Pool, tokenCh <-chan struct{}, submitters int, wg *sync.WaitGroup, total *int64, durFn func() time.Duration, nohook bool) {
 	for g := 0; g < submitters; g++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for range tokenCh {
 				atomic.AddInt64(total, 1)
-				pool.Submit(newTask(durFn))
+				if nohook {
+					submitSimple(pool, durFn)
+				} else {
+					submitTimed(pool, durFn)
+				}
 			}
 		}()
 	}

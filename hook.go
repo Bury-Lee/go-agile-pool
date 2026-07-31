@@ -1,13 +1,16 @@
 package agilepool
 
-import "sync"
+import (
+	"context"
+	"sync"
+)
 
 // TaskHook is the callback signature for task lifecycle events.
-type TaskHook func(task Task)
+type TaskHook func(ctx context.Context, task Task)
 
 // TaskCompleteHook is the callback signature for task completion.
 // recovered is nil on normal exit, otherwise the value passed to panic.
-type TaskCompleteHook func(task Task, recovered any)
+type TaskCompleteHook func(ctx context.Context, task Task, recovered any)
 
 // PoolHook is the callback signature for pool-level events.
 type PoolHook func(p *Pool)
@@ -65,31 +68,31 @@ func (p *Pool) OnPoolClosed(fn PoolHook) {
 	p.hooks.mu.Unlock()
 }
 
-func (p *Pool) dispatchTaskSubmitted(task Task) {
+func (p *Pool) dispatchTaskSubmitted(ctx context.Context, task Task) {
 	p.hooks.mu.RLock()
 	defer p.hooks.mu.RUnlock()
 	for _, fn := range p.hooks.taskSubmitted {
-		p.invokeTaskHookSafely(fn, task, "OnTaskSubmitted")
+		p.invokeTaskHookSafely(fn, ctx, task, "OnTaskSubmitted")
 	}
 }
 
-func (p *Pool) dispatchTaskEnqueued(task Task) {
+func (p *Pool) dispatchTaskEnqueued(ctx context.Context, task Task) {
 	p.hooks.mu.RLock()
 	defer p.hooks.mu.RUnlock()
 	for _, fn := range p.hooks.taskEnqueued {
-		p.invokeTaskHookSafely(fn, task, "OnTaskEnqueued")
+		p.invokeTaskHookSafely(fn, ctx, task, "OnTaskEnqueued")
 	}
 }
 
-func (p *Pool) dispatchTaskStarted(task Task) {
+func (p *Pool) dispatchTaskStarted(ctx context.Context, task Task) {
 	p.hooks.mu.RLock()
 	defer p.hooks.mu.RUnlock()
 	for _, fn := range p.hooks.taskStarted {
-		p.invokeTaskHookSafely(fn, task, "OnTaskStarted")
+		p.invokeTaskHookSafely(fn, ctx, task, "OnTaskStarted")
 	}
 }
 
-func (p *Pool) dispatchTaskCompleted(task Task, recovered any) {
+func (p *Pool) dispatchTaskCompleted(ctx context.Context, task Task, recovered any) {
 	p.hooks.mu.RLock()
 	defer p.hooks.mu.RUnlock()
 	for _, fn := range p.hooks.taskCompleted {
@@ -99,7 +102,7 @@ func (p *Pool) dispatchTaskCompleted(task Task, recovered any) {
 					p.logger.Printf("hook OnTaskCompleted panicked: %v\n%s", r, Stack(1))
 				}
 			}()
-			fn(task, recovered)
+			fn(ctx, task, recovered)
 		}()
 	}
 }
@@ -119,11 +122,11 @@ func (p *Pool) dispatchPoolClosed() {
 	}
 }
 
-func (p *Pool) invokeTaskHookSafely(fn TaskHook, task Task, hookName string) {
+func (p *Pool) invokeTaskHookSafely(fn TaskHook, ctx context.Context, task Task, hookName string) {
 	defer func() {
 		if r := recover(); r != nil {
 			p.logger.Printf("hook %s panicked: %v\n%s", hookName, r, Stack(1))
 		}
 	}()
-	fn(task)
+	fn(ctx, task)
 }

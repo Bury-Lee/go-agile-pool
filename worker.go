@@ -1,6 +1,7 @@
 package agilepool
 
 import (
+	"context"
 	"sync/atomic"
 	"time"
 )
@@ -106,8 +107,14 @@ loop:
 
 func (w *worker) runTask(task Task) {
 	atomic.AddInt64(&w.pool.consumeCount, 1)
-
-	w.pool.dispatchTaskStarted(task)
+	// Extract context from contextTask for hook dispatch.
+	hookCtx := context.Background()
+	hookTask := task
+	if ct, ok := task.(*contextTask); ok {
+		hookCtx = ct.ctx
+		hookTask = ct.task
+	}
+	w.pool.dispatchTaskStarted(hookCtx, hookTask)
 
 	defer func() {
 		p := recover()
@@ -115,7 +122,7 @@ func (w *worker) runTask(task Task) {
 			w.pool.logger.Printf("worker exits from panic: %v\n%s\n", p, Stack(1))
 		}
 		w.pool.done()
-		w.pool.dispatchTaskCompleted(task, p)
+		w.pool.dispatchTaskCompleted(hookCtx, hookTask, p)
 	}()
 	task.Process()
 }

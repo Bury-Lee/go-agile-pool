@@ -201,6 +201,14 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 	if atomic.LoadInt32(&p.closed) == 1 {
 		return false
 	}
+	// Extract context from contextTask for hook dispatch; keep the wrapper
+	// intact so contextTask.Process() can still check ctx.Err().
+	hookCtx := ctx
+	hookTask := task
+	if ct, ok := task.(*contextTask); ok {
+		hookCtx = ct.ctx
+		hookTask = ct.task
+	}
 	atomic.AddInt64(&p.submitCount, 1)
 	p.wg.Add(1)
 	atomic.AddInt64(&p.pendingTasks, 1)
@@ -212,12 +220,12 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 			go w.run(nil)
 		}
 	}
-	p.dispatchTaskSubmitted(task)
+	p.dispatchTaskSubmitted(hookCtx, hookTask)
 
 	if p.config.workMode == NONBLOCK {
 		select {
 		case p.taskQueue <- task:
-			p.dispatchTaskEnqueued(task)
+			p.dispatchTaskEnqueued(hookCtx, hookTask)
 			return true
 		default:
 			p.done()
@@ -227,7 +235,7 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 
 	select {
 	case p.taskQueue <- task:
-		p.dispatchTaskEnqueued(task)
+		p.dispatchTaskEnqueued(hookCtx, hookTask)
 		return true
 	default:
 	}
@@ -235,7 +243,14 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 	result := p.taskBuf.PushAndForward(task, func(t Task) bool {
 		select {
 		case p.taskQueue <- t:
-			p.dispatchTaskEnqueued(t)
+			// Unpack contextTask if present so hooks see the real task and context.
+			fwdCtx := ctx
+			fwdTask := t
+			if ct, ok := t.(*contextTask); ok {
+				fwdCtx = ct.ctx
+				fwdTask = ct.task
+			}
+			p.dispatchTaskEnqueued(fwdCtx, fwdTask)
 			return true
 		default:
 			return false
@@ -248,7 +263,7 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 		return false
 	case taskBufferFull:
 		p.taskQueue <- task
-		p.dispatchTaskEnqueued(task)
+		p.dispatchTaskEnqueued(hookCtx, hookTask)
 		return true
 	default:
 		return true
@@ -521,12 +536,11 @@ func (p *Pool) GetWorkerCreateCount() int64 {
 	return atomic.LoadInt64(&p.workerCreateCount)
 }
 
-// GetTaskQueueLen returns the number of tasks currently queued in the
-// handoff channel (taskQueue), i.e. tasks submitted but not yet picked
-// up by a worker. This is a snapshot of len(taskQueue) and does not
-// include tasks waiting in the chunked overflow buffer.
+// GetTaskQueueLen returns the number of tasks currently buffered in the
+// handoff channel (taskQueue) awaiting pickup by a worker.  This is a
+// snapshot of len(taskQueue); it does NOT include tasks waiting in the
+// chunked overflow buffer (taskBuf) or tasks currently being processed.
 func (p *Pool) GetTaskQueueLen() int {
-	// Returns the number of tasks that have been submitted but not yet enqueued for execution.
 	return len(p.taskQueue)
 }
 
@@ -541,7 +555,14 @@ func (p *Pool) GetIdleWorkerCount() int64 {
 // GetCapacity returns the maximum number of workers that the pool can
 // create and maintain concurrently. This value is set during pool
 // initialization and remains constant throughout the pool's lifecycle.
-// Using a getter function provides a more idiomatic and professional API.
 func (p *Pool) GetCapacity() int64 {
 	return p.capacity
+}
+
+// GetPendingTasks returns the current pending task count (atomic snapshot).
+// Pending tasks are those that have been submitted (wg.Add) but have not
+// yet finished processing (wg.Done).  This count includes tasks in the
+// handoff channel, the overflow buffer, and tasks currently executing.
+func (p *Pool) GetPendingTasks() int64 {
+	return atomic.LoadInt64(&p.pendingTasks)
 }

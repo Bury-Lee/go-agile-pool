@@ -51,7 +51,7 @@ hook 回调执行路径:
   pool.Submit(task)
     → p.hooks.mu.RLock()         // 池级读写锁（读锁）
     → 遍历 hooks.taskSubmitted
-    → invokeTaskHookSafely(fn, task, "OnTaskSubmitted")
+    → invokeTaskHookSafely(fn, ctx, task, "OnTaskSubmitted")
         → atomic.AddInt64(&submittedCount, 1)  // 唯一的业务逻辑
     → p.hooks.mu.RUnlock()
 ```
@@ -110,12 +110,12 @@ hook 回调执行路径:
 
 ## 未来规划
 
-后续将考虑为 Task 引入 **`context.Context` 支持**，使任务可携带标准 Go context（含 traceID、spanID、租户标识等元数据），Hook 回调能够提取这些上下文信息进行分析。具体方向包括：
+Task 已支持 **`context.Context`**，可通过 `SubmitCtx(ctx, task)` 提交携带标准 Go context（含 traceID、spanID、租户标识等元数据）的任务，所有 Hook 回调均可接收并提取 context：
 
-- **Task 内嵌 Context**: 允许提交任务时附带 `context.Context`，Hook 回调可通过 Task 接口获取
+- **Task 携带 Context**: `SubmitCtx(ctx, task)` 提交时将 context 注入 `contextTask` wrapper，贯穿全链路
 - **跨阶段追踪**: 同一任务的 submitted → enqueued → started → completed 全链路共享同一个 context，实现端到端可观测
 - **上下文透传分析**: Hook 回调可提取 context 中的 traceID、deadline、自定义 key-value 等，写入 CSV 或对接外部 tracing 系统
-- **低侵入设计**: 可能通过可选接口（如 `TaskWithContext`）扩展，不强制所有 Task 实现，保持现有 Task 接口的简洁性
-- **内置分析上下文**: 准备一些预置基于 context 的 latency 分段统计、错误分类、重试计数等分析能力，开箱即用
+- **低侵入设计**: context 通过内部 `contextTask` 包装传递，不强制所有 Task 实现额外接口，保持 Task 接口的简洁性
+- **内置分析上下文**: 可基于 context 实现 latency 分段统计、错误分类、重试计数等分析能力
 
-这些能力将使 Hook 从纯计数观察升级为**可编程的任务级可观测性管道**，适用于分布式追踪、性能诊断、业务埋点、自适应调参等进阶场景。
+这些能力使 Hook 从纯计数观察升级为**可编程的任务级可观测性管道**，适用于分布式追踪、性能诊断、业务埋点、自适应调参等进阶场景。

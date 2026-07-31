@@ -10,7 +10,8 @@ import (
 	"github.com/shirou/gopsutil/v3/cpu"
 )
 
-// Couter collects memory, GC, CPU and pool metrics at a fixed interval.
+// Couter collects memory, GC, CPU, pool and task-lifecycle timing metrics
+// at a fixed interval and writes them to a CSV or JSON log file.
 func Couter(args FlagArgs, p *agilepool.Pool, f *os.File, start time.Time) {
 	var memStats runtime.MemStats
 	tick := time.NewTicker(time.Duration(args.TakeTime * float64(time.Second)))
@@ -46,6 +47,7 @@ func Couter(args FlagArgs, p *agilepool.Pool, f *os.File, start time.Time) {
 		}
 
 		s, e, st, c := readHookCounters()
+		ts := readTimingStats()
 
 		switch args.LogFormat {
 		case "csv":
@@ -57,6 +59,8 @@ func Couter(args FlagArgs, p *agilepool.Pool, f *os.File, start time.Time) {
 					"cpu_pct"
 				if hookEnabled {
 					hdr += ",hook_submitted,hook_enqueued,hook_started,hook_completed"
+					hdr += ",timed_tasks"
+					hdr += ",avg_handoff_ns,avg_queue_wait_ns,avg_exec_ns,avg_total_ns"
 				}
 				fmt.Fprintln(f, hdr)
 				headerWritten = true
@@ -78,9 +82,21 @@ func Couter(args FlagArgs, p *agilepool.Pool, f *os.File, start time.Time) {
 				cpuUsage)
 			if hookEnabled {
 				row += fmt.Sprintf(",%d,%d,%d,%d", s, e, st, c)
+				if ts != nil {
+					row += fmt.Sprintf(",%d,%d,%d,%d,%d",
+						ts.TimedTasks,
+						ts.AvgHandoffNs, ts.AvgQueueWaitNs,
+						ts.AvgExecNs, ts.AvgTotalNs)
+				} else {
+					row += ",0,0,0,0,0"
+				}
 			}
 			fmt.Fprintln(f, row)
 		case "json":
+			if !headerWritten {
+				headerWritten = true
+			}
+
 			line := fmt.Sprintf(`{"run_sec":%.3f,"goroutines":%d,"heap_alloc_mb":%.2f,`+
 				`"total_alloc_mb":%.2f,"sys_mb":%.2f,"gc_total":%d,`+
 				`"gc_pause_total_ms":%.2f,"gc_pause_avg_ms":%.2f,`+
@@ -102,7 +118,14 @@ func Couter(args FlagArgs, p *agilepool.Pool, f *os.File, start time.Time) {
 				running, idle, created, queueLen,
 				cpuUsage)
 			if hookEnabled {
-				line += fmt.Sprintf(`,"hook_submitted":%d,"hook_enqueued":%d,"hook_started":%d,"hook_completed":%d`, s, e, st, c)
+				line += fmt.Sprintf(`,"hook_submitted":%d,"hook_enqueued":%d,"hook_started":%d,"hook_completed":%d`,
+					s, e, st, c)
+				if ts != nil {
+					line += fmt.Sprintf(`,"timed_tasks":%d,"avg_handoff_ns":%d,"avg_queue_wait_ns":%d,"avg_exec_ns":%d,"avg_total_ns":%d`,
+						ts.TimedTasks,
+						ts.AvgHandoffNs, ts.AvgQueueWaitNs,
+						ts.AvgExecNs, ts.AvgTotalNs)
+				}
 			}
 			fmt.Fprintln(f, line+"}")
 		}
