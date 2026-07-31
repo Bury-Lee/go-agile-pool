@@ -73,7 +73,6 @@ type Pool struct {
 	idleWorks         IdleWorkerContainer
 	config            *Config
 	lock              *sync.Mutex
-	lifecycleMu       sync.RWMutex // lifecycleMu protects the admission boundary between Submit and Close.
 	wg                sync.WaitGroup
 	logger            Logger
 	// workerCreateCount counts the total allocations from sync.Pool.New
@@ -196,17 +195,13 @@ func (p *Pool) SubmitCtx(ctx context.Context, task Task) {
 }
 
 func (p *Pool) submit(ctx context.Context, task Task) bool {
-	// Register the task while holding lifecycleMu so Close cannot set closed
-	// and let Wait observe an empty WaitGroup before this Submit is counted.
-	p.lifecycleMu.RLock()
+	p.wg.Add(1)
 	if atomic.LoadInt32(&p.closed) == 1 {
-		p.lifecycleMu.RUnlock()
+		p.wg.Done() // Balance the Add above because the closed pool rejects this task.
 		return false
 	}
 	atomic.AddInt64(&p.submitCount, 1)
-	p.wg.Add(1)
 	atomic.AddInt64(&p.pendingTasks, 1)
-	p.lifecycleMu.RUnlock()
 
 	// Cold start: if no goroutine is running, spawn one immediately.
 	if atomic.LoadInt64(&p.runningWorkersNum) == 0 {
@@ -489,14 +484,9 @@ func (p *Pool) scaler() {
 // Close is idempotent and safe to call from any goroutine, including from
 // within a running task.
 func (p *Pool) Close() {
-	// Exclude new task registrations before marking the pool closed.
-	// Once this lock is acquired, Close can safely establish the Wait boundary.
-	p.lifecycleMu.Lock()
 	if !atomic.CompareAndSwapInt32(&p.closed, 0, 1) {
-		p.lifecycleMu.Unlock()
 		return
 	}
-	p.lifecycleMu.Unlock()
 	defaultPool.CompareAndSwap(p, nil)
 
 	p.taskBuf.Close()
