@@ -67,7 +67,7 @@ type Pool struct {
 	closePoolCn       chan struct{}
 	capacity          int64 // The maximum number of workers in the pool.
 	runningWorkersNum int64
-	closed            int32 // 1 once Close has been called, otherwise 0
+	closed            int32       // 1 once Close has been called, otherwise 0
 	muIdle            sync.Locker // idle container lock: sync.Mutex for MutexLock, spin lock for SpinLock
 	workerPool        sync.Pool   // Worker object pool
 	idleWorks         IdleWorkerContainer
@@ -195,11 +195,12 @@ func (p *Pool) SubmitCtx(ctx context.Context, task Task) {
 }
 
 func (p *Pool) submit(ctx context.Context, task Task) bool {
+	p.wg.Add(1)
 	if atomic.LoadInt32(&p.closed) == 1 {
+		p.wg.Done() // Balance the Add above because the closed pool rejects this task.
 		return false
 	}
 	atomic.AddInt64(&p.submitCount, 1)
-	p.wg.Add(1)
 	atomic.AddInt64(&p.pendingTasks, 1)
 
 	// Cold start: if no goroutine is running, spawn one immediately.
