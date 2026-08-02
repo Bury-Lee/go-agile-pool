@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 )
 
+// newTraceID generates a random 16-byte hex-encoded trace identifier.
 func newTraceID() (string, error) {
 	var b [16]byte
 	_, err := rand.Read(b[:])

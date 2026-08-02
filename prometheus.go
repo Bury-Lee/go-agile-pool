@@ -7,9 +7,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-// ---------------------------------------------------------------------------
-// PrometheusMetricsOpts — configuration for Prometheus task-latency metrics
-// ---------------------------------------------------------------------------
+// --- PrometheusMetricsOpts ---
 
 // PrometheusMetricsOpts configures the Prometheus histograms exposed for
 // task lifecycle timing.
@@ -39,39 +37,12 @@ var DefaultLatencyBuckets = []float64{
 	0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30,
 }
 
-// ---------------------------------------------------------------------------
-// PrometheusMetrics — full-lifecycle task-latency histograms
-// ---------------------------------------------------------------------------
+// --- PrometheusMetrics ---
 
-// PrometheusMetrics collects and exposes task lifecycle timing via Prometheus
-// histograms.  It observes all four lifecycle phases at task completion:
-//
-//   - handoff latency   (submitted → enqueued)
-//   - queue-wait latency (enqueued → started)
-//   - exec latency       (started → completed)
-//   - total latency      (submitted → completed)
-//
-// TimingHook must be registered separately to capture the lifecycle
-// timestamps.  EnableTiming() must be called on the Context.
-//
-// Usage:
-//
-//	pm := agilepool.NewPrometheusMetrics(agilepool.PrometheusMetricsOpts{
-//	    Namespace: "myapp",
-//	    Subsystem: "agilepool",
-//	})
-//	// Register TimingHook to capture timestamps.
-//	s, e, st, co := agilepool.TimingHook()
-//	pool.OnTaskSubmitted(s)
-//	pool.OnTaskEnqueued(e)
-//	pool.OnTaskStarted(st)
-//	pool.OnTaskCompleted(co)
-//	// Register Prometheus observation hooks.
-//	pm.RegisterOn(pool)
-//
-//	// In the task, enable timing on the Context:
-//	pc := agilepool.PoolContextFrom(ctx)
-//	pc.EnableTiming()
+// PrometheusMetrics collects task lifecycle timing via Prometheus histograms.
+// It observes all four lifecycle phases at task completion: handoff, queue
+// wait, exec, and total latency. TimingHook must be registered separately
+// and EnableTiming() must be called on the Context.
 type PrometheusMetrics struct {
 	handoffLatency   prometheus.Histogram
 	queueWaitLatency prometheus.Histogram
@@ -130,13 +101,8 @@ func NewPrometheusMetrics(opts PrometheusMetricsOpts) *PrometheusMetrics {
 }
 
 // Hooks returns the four lifecycle hooks that record observations into the
-// Prometheus histograms at task completion.
-//
-//	submitted, enqueued, started, completed := pm.Hooks()
-//	pool.OnTaskSubmitted(submitted)
-//	pool.OnTaskEnqueued(enqueued)
-//	pool.OnTaskStarted(started)
-//	pool.OnTaskCompleted(completed)
+// Prometheus histograms at task completion. The submitted/enqueued/started
+// hooks are no-ops; only the completed hook observes latencies.
 func (pm *PrometheusMetrics) Hooks() (TaskHook, TaskHook, TaskHook, TaskCompleteHook) {
 	noop := func(ctx context.Context, task Task) {}
 
@@ -173,21 +139,10 @@ func (pm *PrometheusMetrics) RegisterOn(p *Pool) {
 	p.OnTaskCompleted(co)
 }
 
-// ---------------------------------------------------------------------------
-// SetupTiming — one-shot wiring of TimingHook + PrometheusMetrics
-// ---------------------------------------------------------------------------
+// --- SetupTiming ---
 
-// SetupTiming registers both TimingHook (to capture timestamps) and
-// PrometheusMetrics (to observe them) on p in a single call.  It returns
-// the PrometheusMetrics instance so the caller can inspect or unregister
-// the metrics later.
-//
-// Usage:
-//
-//	pm := agilepool.SetupTiming(pool, agilepool.PrometheusMetricsOpts{
-//	    Namespace: "myapp",
-//	    Subsystem: "agilepool",
-//	})
+// SetupTiming registers both TimingHook and PrometheusMetrics on p in a
+// single call. Returns the PrometheusMetrics instance.
 func SetupTiming(p *Pool, opts PrometheusMetricsOpts) *PrometheusMetrics {
 	s, e, st, co := TimingHook()
 	p.OnTaskSubmitted(s)

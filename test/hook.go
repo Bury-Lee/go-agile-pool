@@ -32,15 +32,10 @@ var (
 	timedTasks     int64 // number of completed tasks with timing enabled
 )
 
-// setupHookTracking registers task-lifecycle hooks on the pool.
-//
-// Two kinds of hooks are registered:
-//   1. Counter hooks — track how many tasks pass through each stage.
-//   2. TimingHook + completion accumulator — record timestamps at each
-//      lifecycle stage and compute phase durations at completion.
-//
-// Timing data is accumulated into atomic int64 counters and can be read
-// (and reset) via readTimingStats for per-interval CSV/JSON output.
+// setupHookTracking registers task-lifecycle hooks on the pool:
+// 1. Counter hooks — track how many tasks pass through each stage.
+// 2. TimingHook + completion accumulator — record timestamps and compute
+//    phase durations at completion for per-interval CSV/JSON output.
 func setupHookTracking(pool *agilepool.Pool) {
 	hookEnabled = true
 

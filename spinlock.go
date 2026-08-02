@@ -53,6 +53,7 @@ func (s *spinLock) Lock() {
 		if atomic.CompareAndSwapUint32(&s.state, 0, 1) {
 			return
 		}
+		// (i+1) offsets 0-based loop so Gosched fires after 16 spins, not on the first
 		if (i+1)%yieldInterval == 0 {
 			runtime.Gosched()
 		}

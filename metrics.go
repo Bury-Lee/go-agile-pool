@@ -7,9 +7,7 @@ import (
 	"time"
 )
 
-// ---------------------------------------------------------------------------
-// MetricsSnapshot — point-in-time metrics summary
-// ---------------------------------------------------------------------------
+// --- MetricsSnapshot ---
 
 // MetricsSnapshot is a point-in-time snapshot of pool-level task counters
 // and average lifecycle latencies.
@@ -39,25 +37,11 @@ type MetricsSnapshot struct {
 	AvgTotalLatency time.Duration
 }
 
-// ---------------------------------------------------------------------------
-// Metrics — built-in in-memory task lifecycle collector
-// ---------------------------------------------------------------------------
+// --- Metrics ---
 
-// Metrics collects simple in-memory task lifecycle counters and average
-// latencies for all four lifecycle phases.  It registers TimingHook (for
-// timestamp capture) and count hooks (for counter increment) automatically
-// on construction.
-//
-// For Prometheus integration, see PrometheusMetrics in prometheus.go.
-//
-// Usage:
-//
-//	metrics := agilepool.NewMetrics(pool)
-//	// ... submit and wait for tasks ...
-//	snap := metrics.Snapshot()
-//	fmt.Printf("handoff=%v queue=%v exec=%v total=%v\n",
-//	    snap.AvgHandoffLatency, snap.AvgQueueWaitLatency,
-//	    snap.AvgExecLatency, snap.AvgTotalLatency)
+// Metrics collects in-memory task lifecycle counters and average latencies.
+// It registers TimingHook and count hooks on construction.
+// For Prometheus, see PrometheusMetrics in prometheus.go.
 type Metrics struct {
 	pool *Pool
 

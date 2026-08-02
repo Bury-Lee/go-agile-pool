@@ -27,14 +27,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-// ---------------------------------------------------------------------------
-// Custom structured logger
-// ---------------------------------------------------------------------------
+// --- Custom structured logger ---
 
 type traceLogger struct{ *log.Logger }
 
-func (l *traceLogger) Printf(format string, v ...any)  { l.Logger.Printf(format, v...) }
-func (l *traceLogger) Println(v ...any)                 { l.Logger.Println(v...) }
+func (l *traceLogger) Printf(format string, v ...any) { l.Logger.Printf(format, v...) }
+func (l *traceLogger) Println(v ...any)               { l.Logger.Println(v...) }
 
 func main() {
 	// ---- 1. Create pool ----
@@ -70,7 +68,46 @@ func main() {
 		}
 	}()
 
-	// ---- 5. Custom trace logging hooks (stack on top of pre-built hooks) ----
+	// ---- 5. Register trace-logging hooks ----
+	registerTraceHooks(pool, logger)
+
+	// ---- 6. Submit tasks with Context ----
+	fmt.Println("=== Trace Hooks Demo ===")
+	fmt.Println("Submitting 20 tasks with auto-generated trace IDs (32-char hex)...")
+	fmt.Println("  - Task 7:  artificially slow (~60ms, will trigger SlowTaskLogHook)")
+	fmt.Println("  - Task 13: panics intentionally")
+	fmt.Println("  - Other:   random 10-50ms sleep")
+	fmt.Println()
+
+	submitDemoTasks(pool)
+	fmt.Println("All tasks submitted — waiting for completion...")
+	time.Sleep(500 * time.Millisecond)
+
+	pool.Close()
+	pool.Wait()
+
+	// ---- 7. Print metrics summary (all four lifecycle phases) ----
+	snap := metrics.Snapshot()
+	if snap != nil {
+		fmt.Println()
+		fmt.Println("=== Metrics Summary ===")
+		fmt.Printf("  submitted:  %d\n", snap.Submitted)
+		fmt.Printf("  started:    %d\n", snap.Started)
+		fmt.Printf("  completed:  %d\n", snap.Completed)
+		fmt.Printf("  failed:     %d\n", snap.Failed)
+		fmt.Println("  --- average latencies ---")
+		fmt.Printf("  handoff:     %v  (submitted → enqueued)\n", snap.AvgHandoffLatency)
+		fmt.Printf("  queue_wait:  %v  (enqueued → started)\n", snap.AvgQueueWaitLatency)
+		fmt.Printf("  exec:        %v  (started → completed)\n", snap.AvgExecLatency)
+		fmt.Printf("  total:       %v  (submitted → completed)\n", snap.AvgTotalLatency)
+	}
+
+	fmt.Println()
+	fmt.Println("=== Done ===")
+}
+
+// registerTraceHooks attaches lifecycle trace-logging hooks to the pool.
+func registerTraceHooks(pool *agilepool.Pool, logger *traceLogger) {
 	pool.OnTaskSubmitted(func(ctx context.Context, task agilepool.Task) {
 		pc := agilepool.PoolContextFrom(ctx)
 		if pc == nil {
@@ -110,7 +147,6 @@ func main() {
 				tid, pc.ExecLatency(), recovered)
 			return
 		}
-		// Full lifecycle breakdown: handoff / queue-wait / exec / total.
 		logger.Printf("[trace=%s] event=completed  handoff=%v  queue_wait=%v  exec=%v  total=%v",
 			tid,
 			pc.HandoffLatency(),
@@ -123,38 +159,32 @@ func main() {
 		logger.Printf("event=pool_closed  running_workers=%d  pending=%d",
 			p.GetRunningWorkersNum(), p.GetTaskQueueLen())
 	})
+}
 
-	// ---- 6. Submit tasks with Context ----
-	fmt.Println("=== Trace Hooks Demo ===")
-	fmt.Println("Submitting 20 tasks with auto-generated trace IDs (32-char hex)...")
-	fmt.Println("  - Task 7:  artificially slow (~60ms, will trigger SlowTaskLogHook)")
-	fmt.Println("  - Task 13: panics intentionally")
-	fmt.Println("  - Other:   random 10-50ms sleep")
-	fmt.Println()
-
-	var submitWG sync.WaitGroup
+// submitDemoTasks submits 20 tasks with varied behaviors:
+// slow (task 7), panicking (task 13), and normal with random sleep.
+func submitDemoTasks(pool *agilepool.Pool) {
+	var wg sync.WaitGroup
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	for i := 1; i <= 20; i++ {
-		submitWG.Add(1)
+		wg.Add(1)
 
 		tenantID := fmt.Sprintf("tenant-%c", 'A'+rng.Intn(3))
 		orderID := fmt.Sprintf("order-%d", 1000+i)
 		taskID := i
 
 		go func() {
-			defer submitWG.Done()
+			defer wg.Done()
 
 			pc := agilepool.NewContext(context.Background())
-			// TraceID is auto-generated (16-byte hex) on first access — no SetTraceID needed.
 			pc.Store("tenant", tenantID)
 			pc.Store("order_id", orderID)
-			pc.EnableTiming() // required for timing/metrics hooks
+			pc.EnableTiming()
 
 			var t agilepool.Task
 			switch {
 			case taskID == 7:
-				// Artificially slow — triggers SlowTaskLogHook (threshold=15ms).
 				t = agilepool.TaskFunc(func() error {
 					time.Sleep(60 * time.Millisecond)
 					return nil
@@ -175,39 +205,5 @@ func main() {
 		}()
 	}
 
-	submitWG.Wait()
-	fmt.Println("All tasks submitted — waiting for completion...")
-	time.Sleep(300 * time.Millisecond)
-
-	pool.Close()
-	pool.Wait()
-
-	// ---- 7. Print metrics summary (all four lifecycle phases) ----
-	snap := metrics.Snapshot()
-	if snap != nil {
-		fmt.Println()
-		fmt.Println("=== Metrics Summary ===")
-		fmt.Printf("  submitted:  %d\n", snap.Submitted)
-		fmt.Printf("  started:    %d\n", snap.Started)
-		fmt.Printf("  completed:  %d\n", snap.Completed)
-		fmt.Printf("  failed:     %d\n", snap.Failed)
-		fmt.Println("  --- average latencies ---")
-		fmt.Printf("  handoff:     %v  (submitted → enqueued)\n", snap.AvgHandoffLatency)
-		fmt.Printf("  queue_wait:  %v  (enqueued → started)\n", snap.AvgQueueWaitLatency)
-		fmt.Printf("  exec:        %v  (started → completed)\n", snap.AvgExecLatency)
-		fmt.Printf("  total:       %v  (submitted → completed)\n", snap.AvgTotalLatency)
-	}
-
-	// ---- 8. Prometheus metrics reminder ----
-	fmt.Println()
-	fmt.Println("=== Prometheus ===")
-	fmt.Println("Histograms registered (scrape http://localhost:2112/metrics):")
-	fmt.Println("  example_agilepool_task_handoff_latency_seconds")
-	fmt.Println("  example_agilepool_task_queue_wait_latency_seconds")
-	fmt.Println("  example_agilepool_task_exec_latency_seconds")
-	fmt.Println("  example_agilepool_task_total_latency_seconds")
-
-	_ = promMetrics
-	fmt.Println()
-	fmt.Println("=== Done ===")
+	wg.Wait()
 }

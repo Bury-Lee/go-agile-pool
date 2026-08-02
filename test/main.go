@@ -71,9 +71,6 @@ func main() {
 
 	// Hook-based execution counters (silent — written to CSV via Couter).
 	// Pass --nohook to disable (reduces lock contention with many workers).
-	if !args.NoHook {
-		setupHookTracking(pool)
-	}
 
 	// Start metrics collector
 	if args.TakeTime > 0 && logFileOut != nil {
@@ -105,28 +102,7 @@ func main() {
 	elapsed := time.Since(start)
 	fmt.Printf("  Elapsed:       %s\n", elapsed)
 
-	// Print final lifecycle timing summary
-	if !args.NoHook {
-		printTimingSummary()
-	}
-
 	fmt.Println("  Done.")
-}
-
-// printTimingSummary reads the final timing stats and prints a
-// human-readable summary of average lifecycle phase durations.
-func printTimingSummary() {
-	ts := readCumulativeTimingStats()
-	if ts == nil || ts.TimedTasks == 0 {
-		return
-	}
-	fmt.Println()
-	fmt.Println("  ── Lifecycle Timing Summary ──")
-	fmt.Printf("  Timed tasks:        %d\n", ts.TimedTasks)
-	fmt.Printf("  Avg handoff:        %v  (submitted → enqueued)\n", formatNs(ts.AvgHandoffNs))
-	fmt.Printf("  Avg queue wait:     %v  (enqueued → started)\n", formatNs(ts.AvgQueueWaitNs))
-	fmt.Printf("  Avg exec:           %v  (started → completed)\n", formatNs(ts.AvgExecNs))
-	fmt.Printf("  Avg total:          %v  (submitted → completed)\n", formatNs(ts.AvgTotalNs))
 }
 
 // newPool creates a pool from args.

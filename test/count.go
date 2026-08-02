@@ -17,6 +17,10 @@ func Couter(args FlagArgs, p *agilepool.Pool, f *os.File, start time.Time) {
 	tick := time.NewTicker(time.Duration(args.TakeTime * float64(time.Second)))
 	defer tick.Stop()
 
+	if !args.NoHook {
+		setupHookTracking(p)
+	}
+
 	headerWritten := false
 
 	for range tick.C {

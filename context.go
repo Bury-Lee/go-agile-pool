@@ -8,9 +8,7 @@ import (
 	"time"
 )
 
-// ---------------------------------------------------------------------------
-// Well-known label keys
-// ---------------------------------------------------------------------------
+// --- Well-known label keys ---
 
 const (
 	// LabelTraceID is the standard key for trace identifiers.
@@ -25,28 +23,21 @@ const (
 	labelTimingCompleted = "_timing_completed" // time.Time
 )
 
-// ---------------------------------------------------------------------------
-// Empty — sentinel value
-// ---------------------------------------------------------------------------
+// --- Empty: zero-allocation sentinel ---
 
-// Empty is a zero-allocation sentinel type.  Store an Empty{} under a key
+// Empty is a zero-allocation sentinel type. Store an Empty{} under a key
 // to signal "enabled" without allocating a meaningful value.
-//
-//	ctx.EnableTiming()   // stores Empty{} under "_timing"
-//	_, ok := ctx.Get("_timing")  // ok==true means timing is enabled
 type Empty struct{}
 
-// ---------------------------------------------------------------------------
-// Context
-// ---------------------------------------------------------------------------
+// --- Context ---
 
 // Context wraps a standard context.Context with a thread-safe mutable
-// key-value store (labels).  It implements context.Context via embedding,
-// and overrides Value() to search its own labels before delegating to the
-// parent chain — the same design pattern used by Gin's gin.Context.
+// key-value store (labels). It implements context.Context via embedding
+// and overrides Value() to search its labels before delegating to the
+// parent chain.
 //
-// Context is designed for sync.Pool reuse: obtain one via NewContext and
-// call Release() after the task completes to return it to the pool.
+// Designed for sync.Pool reuse: obtain via NewContext, call Release()
+// after the task completes.
 type Context struct {
 	context.Context
 
@@ -54,9 +45,7 @@ type Context struct {
 	labels map[string]any
 }
 
-// ---------------------------------------------------------------------------
-// sync.Pool for Context reuse
-// ---------------------------------------------------------------------------
+// --- sync.Pool for Context reuse ---
 
 var contextPool = sync.Pool{
 	New: func() any {
@@ -64,25 +53,19 @@ var contextPool = sync.Pool{
 	},
 }
 
-// ---------------------------------------------------------------------------
-// contextKey — unexported type to avoid collisions in context.WithValue.
-// ---------------------------------------------------------------------------
-
+// contextKey is an unexported type to avoid collisions in context.WithValue.
 type contextKey struct{ name string }
 
 var poolContextKey = contextKey{name: "agilepool.Context"}
 
-// ---------------------------------------------------------------------------
-// Constructor & lifecycle
-// ---------------------------------------------------------------------------
+// --- Constructor & lifecycle ---
 
 // NewContext obtains a Context from the internal sync.Pool and initialises
-// it with parent.  If parent is nil, context.Background() is used.
+// it with parent. If parent is nil, context.Background() is used.
 //
-// IMPORTANT: NewContext injects *Context itself into the parent's Value
-// chain via context.WithValue.  This means PoolContextFrom can find it even
-// if the caller later wraps the Context with context.WithValue,
-// context.WithTimeout, or context.WithCancel — matching Gin's behaviour.
+// NewContext injects *Context into the parent's Value chain via
+// context.WithValue so PoolContextFrom can find it even after wrapping
+// with context.WithTimeout or context.WithCancel.
 func NewContext(parent context.Context) *Context {
 	if parent == nil {
 		parent = context.Background()
@@ -113,9 +96,7 @@ func (c *Context) Reset() {
 	c.mu.Unlock()
 }
 
-// ---------------------------------------------------------------------------
-// Store / Get — generic key-value access (labels is map[string]any)
-// ---------------------------------------------------------------------------
+// --- Store / Get ---
 
 // Store sets a value under key.  Thread-safe.
 func (c *Context) Store(key string, value any) {
@@ -159,20 +140,10 @@ func (c *Context) GetTime(key string) time.Time {
 	return time.Time{}
 }
 
-// ---------------------------------------------------------------------------
-// Value — override context.Context.Value for chain lookup (Gin-style)
-// ---------------------------------------------------------------------------
+// --- Value: override context.Context.Value ---
 
 // Value searches the Context's labels first (for string keys), then falls
-// back to the embedded context.Context chain.  This means:
-//
-//   - ctx.Value("trace_id")       → found in labels
-//   - ctx.Value(poolContextKey)   → found in parent via WithValue injection
-//   - ctx.Value(someOtherKey)     → delegated to embedded context chain
-//
-// This design ensures that even after wrapping with context.WithValue /
-// context.WithTimeout, standard context.Value lookups can still reach the
-// Context's labels.
+// back to the embedded context.Context chain.
 func (c *Context) Value(key any) any {
 	// String keys: search our labels map first.
 	if k, ok := key.(string); ok {
@@ -188,17 +159,11 @@ func (c *Context) Value(key any) any {
 	return c.Context.Value(key)
 }
 
-// ---------------------------------------------------------------------------
-// PoolContextFrom — extract *Context from any context.Context
-// ---------------------------------------------------------------------------
+// --- PoolContextFrom ---
 
-// PoolContextFrom extracts a *Context from ctx.
-// Returns nil if ctx is not a *Context and does not contain one in its
-// Value chain.
-//
-// It first tries a type assertion (fast path), then falls back to
-// ctx.Value(poolContextKey) (survives context.WithValue / WithTimeout
-// wrapping thanks to the injection in NewContext).
+// PoolContextFrom extracts a *Context from ctx via type assertion (fast path)
+// or ctx.Value lookup (survives context.WithTimeout wrapping).
+// Returns nil if no *Context is found.
 func PoolContextFrom(ctx context.Context) *Context {
 	if c, ok := ctx.(*Context); ok {
 		return c
@@ -209,9 +174,7 @@ func PoolContextFrom(ctx context.Context) *Context {
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// TraceID — auto-generating trace identifier
-// ---------------------------------------------------------------------------
+// --- TraceID ---
 
 // TraceID returns the trace_id label.  If no trace_id has been set,
 // a random hex-encoded 16-byte id is generated and stored automatically.
@@ -247,17 +210,10 @@ func (c *Context) SetTraceID(id string) {
 	c.Store(LabelTraceID, id)
 }
 
-// ---------------------------------------------------------------------------
-// Timing support
-// ---------------------------------------------------------------------------
+// --- Timing support ---
 
-// EnableTiming marks this Context for lifecycle timing.  After calling this,
-// any registered TimingHook will record timestamps at each lifecycle stage
-// (submitted / enqueued / started / completed).
-//
-// Check whether timing is enabled:
-//
-//	_, enabled := ctx.Get(labelTiming)
+// EnableTiming marks this Context for lifecycle timing. After calling this,
+// TimingHook will record timestamps at each lifecycle stage.
 func (c *Context) EnableTiming() {
 	c.Store(labelTiming, Empty{})
 }
@@ -342,29 +298,10 @@ func (c *Context) QueueWaitLatency() time.Duration {
 	return started.Sub(enqueued)
 }
 
-// ---------------------------------------------------------------------------
-// TimingHook — pre-built four-phase lifecycle timing hooks
-// ---------------------------------------------------------------------------
+// --- TimingHook ---
 
-// TimingHook returns a set of four hooks that record timestamps into the
-// Context at each lifecycle stage.  The Context must have EnableTiming()
-// called on it before the hooks will record anything.
-//
-// Usage:
-//
-//	s, e, st, co := agilepool.TimingHook()
-//	pool.OnTaskSubmitted(s)
-//	pool.OnTaskEnqueued(e)
-//	pool.OnTaskStarted(st)
-//	pool.OnTaskCompleted(co)
-//
-// After completion, query timestamps via:
-//
-//	pc.Timing()          // all four time.Time values
-//	pc.Duration()        // time since started
-//	pc.TotalLatency()    // submitted → completed
-//	pc.QueueLatency()    // submitted → started
-//	pc.ExecLatency()     // started → completed
+// TimingHook returns four hooks that record timestamps into the Context at
+// each lifecycle stage. EnableTiming() must be called on the Context first.
 func TimingHook() (
 	submitted TaskHook,
 	enqueued TaskHook,
@@ -406,34 +343,12 @@ func TimingHook() (
 	return
 }
 
-// ---------------------------------------------------------------------------
-// SlowTaskLogHook — detect and log slow tasks
-// ---------------------------------------------------------------------------
+// --- SlowTaskLogHook ---
 
-// SlowTaskLogHook returns a TaskCompleteHook that logs a warning when a task's
-// execution time exceeds maxDuration.  TimingHook must also be registered and
-// EnableTiming() must have been called on the Context, otherwise the hook is
-// a no-op.
-//
-// The log message includes the TraceID, execution latency, threshold, and
-// the caller location (file:line function) captured via runtime.Caller so
-// operators can trace back to the hook dispatch site.
-//
-// Usage:
-//
-//	// Register TimingHook first to capture lifecycle timestamps.
-//	s, e, st, co := agilepool.TimingHook()
-//	pool.OnTaskSubmitted(s)
-//	pool.OnTaskEnqueued(e)
-//	pool.OnTaskStarted(st)
-//	pool.OnTaskCompleted(co)
-//
-//	// Then register SlowTaskLogHook as an additional completion hook.
-//	pool.OnTaskCompleted(agilepool.SlowTaskLogHook(5*time.Second, logger))
-//
-//	// In the task, enable timing on the Context:
-//	pc := agilepool.PoolContextFrom(ctx)
-//	pc.EnableTiming()
+// SlowTaskLogHook returns a TaskCompleteHook that logs a warning when a
+// task's execution time exceeds maxDuration. TimingHook must be registered
+// and EnableTiming() must be called on the Context. The log includes
+// TraceID, exec latency, threshold, and caller file:line.
 func SlowTaskLogHook(maxDuration time.Duration, logger Logger) TaskCompleteHook {
 	return func(ctx context.Context, task Task, recovered any) {
 		pc := PoolContextFrom(ctx)
