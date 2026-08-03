@@ -201,14 +201,10 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 	if atomic.LoadInt32(&p.closed) == 1 {
 		return false
 	}
-	// Extract context from contextTask for hook dispatch; keep the wrapper
-	// intact so contextTask.Process() can still check ctx.Err().
+	// For newly submitted tasks, no assertion is needed to obtain hookCtx
+	// and hookTask since the task has not yet been wrapped.
 	hookCtx := ctx
 	hookTask := task
-	if ct, ok := task.(*contextTask); ok {
-		hookCtx = ct.ctx
-		hookTask = ct.task
-	}
 	atomic.AddInt64(&p.submitCount, 1)
 	p.wg.Add(1)
 	atomic.AddInt64(&p.pendingTasks, 1)
@@ -220,6 +216,7 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 			go w.run(nil)
 		}
 	}
+	// Trigger task submission hook
 	p.dispatchTaskSubmitted(hookCtx, hookTask)
 
 	if p.config.workMode == NONBLOCK {
