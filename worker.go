@@ -114,15 +114,18 @@ func (w *worker) runTask(task Task) {
 		hookCtx = ct.ctx
 		hookTask = ct.task
 	}
-	w.pool.dispatchTaskStarted(hookCtx, hookTask)
-
+	if w.pool.hooks != nil {
+		w.pool.dispatchTaskStarted(hookCtx, hookTask)
+	}
 	defer func() {
 		p := recover()
 		if p != nil {
 			w.pool.logger.Printf("worker exits from panic: %v\n%s\n", p, Stack(1))
 		}
 		w.pool.done()
-		w.pool.dispatchTaskCompleted(hookCtx, hookTask, p)
+		if w.pool.hooks != nil {
+			w.pool.dispatchTaskCompleted(hookCtx, hookTask, p)
+		}
 	}()
 	task.Process()
 }

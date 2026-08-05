@@ -98,7 +98,7 @@ type Pool struct {
 	consumeHist *histogram // consume count distribution per window
 	exitHist    *histogram // exit count distribution per window
 
-	hooks *hooks // lifecycle callbacks registered via OnTaskSubmitted etc.
+	hooks *hooks // lifecycle callbacks registered via OnTaskSubmitted etc.当为nil时为不启用
 }
 
 func NewPool(c *Config) *Pool {
@@ -216,13 +216,17 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 			go w.run(nil)
 		}
 	}
-	// Trigger task submission hook
-	p.dispatchTaskSubmitted(hookCtx, hookTask)
+	if p.hooks != nil {
+		// Trigger task submission hook
+		p.dispatchTaskSubmitted(hookCtx, hookTask)
+	}
 
 	if p.config.workMode == NONBLOCK {
 		select {
 		case p.taskQueue <- task:
-			p.dispatchTaskEnqueued(hookCtx, hookTask)
+			if p.hooks != nil {
+				p.dispatchTaskEnqueued(hookCtx, hookTask)
+			}
 			return true
 		default:
 			p.done()
@@ -232,7 +236,9 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 
 	select {
 	case p.taskQueue <- task:
-		p.dispatchTaskEnqueued(hookCtx, hookTask)
+		if p.hooks != nil {
+			p.dispatchTaskEnqueued(hookCtx, hookTask)
+		}
 		return true
 	default:
 	}
@@ -247,7 +253,9 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 				fwdCtx = ct.ctx
 				fwdTask = ct.task
 			}
-			p.dispatchTaskEnqueued(fwdCtx, fwdTask)
+			if p.hooks != nil {
+				p.dispatchTaskEnqueued(fwdCtx, fwdTask)
+			}
 			return true
 		default:
 			return false
@@ -260,7 +268,9 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 		return false
 	case taskBufferFull:
 		p.taskQueue <- task
-		p.dispatchTaskEnqueued(hookCtx, hookTask)
+		if p.hooks != nil {
+			p.dispatchTaskEnqueued(hookCtx, hookTask)
+		}
 		return true
 	default:
 		return true
