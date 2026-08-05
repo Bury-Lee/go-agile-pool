@@ -1,6 +1,7 @@
 package agilepool
 
 import (
+	"context"
 	"sync/atomic"
 	"time"
 )
@@ -106,13 +107,16 @@ loop:
 
 func (w *worker) runTask(task Task) {
 	atomic.AddInt64(&w.pool.consumeCount, 1)
-	// Extract context from contextTask for hook dispatch.
 	if w.pool.hooks != nil {
+		// Extract context from contextTask for hook dispatch; plain tasks
+		// fall back to context.Background() so hooks keep firing for them.
+		hookCtx := context.Background()
+		hookTask := task
 		if ct, ok := task.(*contextTask); ok {
-			hookCtx := ct.ctx
-			hookTask := ct.task
-			w.pool.dispatchTaskStarted(hookCtx, hookTask)
+			hookCtx = ct.ctx
+			hookTask = ct.task
 		}
+		w.pool.dispatchTaskStarted(hookCtx, hookTask)
 	}
 	defer func() {
 		p := recover()
@@ -121,11 +125,16 @@ func (w *worker) runTask(task Task) {
 		}
 		w.pool.done()
 		if w.pool.hooks != nil {
+			// Same unpacking as the started hook above: contextTask-wrapped
+			// tasks dispatch with their real ctx/task, plain tasks use
+			// context.Background().
+			hookCtx := context.Background()
+			hookTask := task
 			if ct, ok := task.(*contextTask); ok {
-				hookCtx := ct.ctx
-				hookTask := ct.task
-				w.pool.dispatchTaskCompleted(hookCtx, hookTask, p)
+				hookCtx = ct.ctx
+				hookTask = ct.task
 			}
+			w.pool.dispatchTaskCompleted(hookCtx, hookTask, p)
 		}
 	}()
 	task.Process()

@@ -246,13 +246,16 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 		case p.taskQueue <- t:
 			// t is the buffer-head task that actually enters the channel;
 			// it may be an earlier task rather than the one just submitted,
-			// so unpack it here instead of reusing hookCtx/hookTask.
+			// so unpack it here instead of reusing the submit ctx/task.
+			// Plain tasks fall back to context.Background().
 			if p.hooks != nil {
+				fwdCtx := context.Background()
+				fwdTask := t
 				if ct, ok := t.(*contextTask); ok {
-					fwdCtx := ct.ctx
-					fwdTask := ct.task
-					p.dispatchTaskEnqueued(fwdCtx, fwdTask)
+					fwdCtx = ct.ctx
+					fwdTask = ct.task
 				}
+				p.dispatchTaskEnqueued(fwdCtx, fwdTask)
 			}
 			return true
 		default:
@@ -267,11 +270,13 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 	case taskBufferFull:
 		p.taskQueue <- task
 		if p.hooks != nil {
+			fwdCtx := context.Background()
+			fwdTask := task
 			if ct, ok := task.(*contextTask); ok {
-				fwdCtx := ct.ctx
-				fwdTask := ct.task
-				p.dispatchTaskEnqueued(fwdCtx, fwdTask)
+				fwdCtx = ct.ctx
+				fwdTask = ct.task
 			}
+			p.dispatchTaskEnqueued(fwdCtx, fwdTask)
 		}
 		return true
 	default:
