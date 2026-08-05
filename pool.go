@@ -203,8 +203,6 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 	}
 	// For newly submitted tasks, no assertion is needed to obtain hookCtx
 	// and hookTask since the task has not yet been wrapped.
-	hookCtx := ctx
-	hookTask := task
 	atomic.AddInt64(&p.submitCount, 1)
 	p.wg.Add(1)
 	atomic.AddInt64(&p.pendingTasks, 1)
@@ -218,14 +216,14 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 	}
 	if p.hooks != nil {
 		// Trigger task submission hook
-		p.dispatchTaskSubmitted(hookCtx, hookTask)
+		p.dispatchTaskSubmitted(ctx, task)
 	}
 
 	if p.config.workMode == NONBLOCK {
 		select {
 		case p.taskQueue <- task:
 			if p.hooks != nil {
-				p.dispatchTaskEnqueued(hookCtx, hookTask)
+				p.dispatchTaskEnqueued(ctx, task)
 			}
 			return true
 		default:
@@ -237,7 +235,7 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 	select {
 	case p.taskQueue <- task:
 		if p.hooks != nil {
-			p.dispatchTaskEnqueued(hookCtx, hookTask)
+			p.dispatchTaskEnqueued(ctx, task)
 		}
 		return true
 	default:
@@ -246,15 +244,15 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 	result := p.taskBuf.PushAndForward(task, func(t Task) bool {
 		select {
 		case p.taskQueue <- t:
-			// Unpack contextTask if present so hooks see the real task and context.
-			fwdCtx := ctx
-			fwdTask := t
-			if ct, ok := t.(*contextTask); ok {
-				fwdCtx = ct.ctx
-				fwdTask = ct.task
-			}
+			// t is the buffer-head task that actually enters the channel;
+			// it may be an earlier task rather than the one just submitted,
+			// so unpack it here instead of reusing hookCtx/hookTask.
 			if p.hooks != nil {
-				p.dispatchTaskEnqueued(fwdCtx, fwdTask)
+				if ct, ok := t.(*contextTask); ok {
+					fwdCtx := ct.ctx
+					fwdTask := ct.task
+					p.dispatchTaskEnqueued(fwdCtx, fwdTask)
+				}
 			}
 			return true
 		default:
@@ -269,7 +267,11 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 	case taskBufferFull:
 		p.taskQueue <- task
 		if p.hooks != nil {
-			p.dispatchTaskEnqueued(hookCtx, hookTask)
+			if ct, ok := task.(*contextTask); ok {
+				fwdCtx := ct.ctx
+				fwdTask := ct.task
+				p.dispatchTaskEnqueued(fwdCtx, fwdTask)
+			}
 		}
 		return true
 	default:
