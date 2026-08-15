@@ -88,7 +88,6 @@ func (t *Treap) Add(work *worker) {
 	node := t.pool.Get().(*treapNode)
 	node.value = work
 	node.priority = rand.Int()
-	node.left = nil
 
 	left, right := t.split(t.root, &work.lastActiveAt)
 	t.root = t.merge(left, t.merge(node, right))
@@ -100,14 +99,34 @@ func (t *Treap) Pop() (val *worker) {
 		return nil
 	}
 
-	node := t.root
-	val = node.value
+	preNode := t.root
+	node := preNode.left
 
-	t.root = t.merge(node.left, node.right)
-	node.value = nil
-	node.left = nil
+	if node == nil {
+		t.root = preNode.right
+		val = preNode.value
+		preNode.value = nil
+		preNode.right = nil
+		t.size--
+		return
+	}
+
+	for {
+		if node.left == nil {
+			break
+		}
+		preNode = node
+		node = preNode.left
+	}
+
+	preNode.left = node.right
+
+	val = node.value
 	node.right = nil
+	node.value = nil
+
 	t.pool.Put(node)
+
 	t.size--
 	return
 }
