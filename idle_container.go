@@ -15,6 +15,8 @@ const (
 	// RingQueueType uses a ring buffer (circular buffer) for idle worker management.
 	// Add and Pop are both O(1), offering better Pop performance than SliceType.
 	RingQueueType
+
+	TreapType
 )
 
 // IdleWorkerContainer abstracts the data structure for managing idle workers.

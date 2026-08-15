@@ -9,7 +9,7 @@ import (
 type Treap struct {
 	root *treapNode
 
-	size int
+	size int64
 	pool sync.Pool
 }
 
@@ -139,9 +139,9 @@ func (t *Treap) RemoveExpired(now time.Time, expiry time.Duration) int {
 	leftTree, t.root = t.split(t.root, &removeTime)
 
 	t.removeTree(leftTree)
-	return oriCount - t.size
+	return int(oriCount - t.size)
 }
 
-func (t *Treap) Len() int {
+func (t *Treap) Len() int64 {
 	return t.size
 }

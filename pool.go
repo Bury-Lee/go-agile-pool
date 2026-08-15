@@ -126,6 +126,8 @@ func NewPool(c *Config) *Pool {
 		p.idleWorks = newSlice()
 	case RingQueueType:
 		p.idleWorks = newRingQueue()
+	case TreapType:
+		p.idleWorks = newTreap()
 	default:
 		p.idleWorks = newLinkedList()
 	}
