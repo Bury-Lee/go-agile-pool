@@ -3,6 +3,7 @@ package agilepool
 import (
 	"math/rand/v2"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -81,7 +82,7 @@ func (t *Treap) removeTree(u *treapNode) {
 	t.removeTree(u.right)
 	u.right = nil
 	t.pool.Put(u)
-	t.size--
+	atomic.AddInt64(&t.size, -1)
 }
 
 func (t *Treap) Add(work *worker) {
@@ -91,7 +92,7 @@ func (t *Treap) Add(work *worker) {
 
 	left, right := t.split(t.root, &work.lastActiveAt)
 	t.root = t.merge(left, t.merge(node, right))
-	t.size++
+	atomic.AddInt64(&t.size, 1)
 }
 
 func (t *Treap) Pop() (val *worker) {
@@ -107,7 +108,9 @@ func (t *Treap) Pop() (val *worker) {
 		val = preNode.value
 		preNode.value = nil
 		preNode.right = nil
-		t.size--
+
+		t.pool.Put(preNode)
+		atomic.AddInt64(&t.size, -1)
 		return
 	}
 
@@ -126,22 +129,21 @@ func (t *Treap) Pop() (val *worker) {
 	node.value = nil
 
 	t.pool.Put(node)
-
-	t.size--
+	atomic.AddInt64(&t.size, -1)
 	return
 }
 
 func (t *Treap) RemoveExpired(now time.Time, expiry time.Duration) int {
-	oriCount := t.size
+	oriCount := atomic.LoadInt64(&t.size)
 	removeTime := now.Add(-expiry)
 
 	var leftTree *treapNode
 	leftTree, t.root = t.split(t.root, &removeTime)
 
 	t.removeTree(leftTree)
-	return int(oriCount - t.size)
+	return int(oriCount - atomic.LoadInt64(&t.size))
 }
 
 func (t *Treap) Len() int64 {
-	return t.size
+	return atomic.LoadInt64(&t.size)
 }
