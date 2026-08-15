@@ -24,7 +24,7 @@
 - **Unbounded task buffering** — small internal handoff channel + chunked linked-list buffer with backpressure (`maxChunkLen`).
 - **Blocking & non-blocking** submit modes.
 - **Automatic idle worker cleanup** — background cleaner purges idle workers that exceed the idle timeout.
-- **Pluggable idle containers** — LinkedList (FIFO), MinHeap (LRU), Slice (FIFO), RingQueue (circular buffer, O(1) Pop).
+- **Pluggable idle containers** — LinkedList (FIFO), MinHeap (LRU), Treap (LRU), Slice (FIFO), RingQueue (circular buffer, O(1) Pop).
 - **Retryable tasks** with exponential backoff (default) or custom backoff strategy.
 - **Context-aware submission** — `SubmitCtx` supports cancellation before and after queueing.
 - **Time-bounded submission** — `SubmitBefore` with a deadline window.
@@ -169,6 +169,7 @@ The pool reuses idle workers. Choose the container that fits your workload:
 | --- | --- | --- | --- | --- |
 | `LinkedListType` | Insertion order (FIFO) | O(1) | O(n) full scan | General-purpose, simple FIFO reuse. |
 | `MinHeapType` | `lastActiveAt` (LRU) | O(log n) | O(k log n) early-stop | Many workers, efficient expiry scan. |
+| `TreapType` | `lastActiveAt` (LRU) | Expected O(log n) | Expected O(log n + k) | Large batches of expired idle workers. |
 | `SliceType` | Insertion order (FIFO) | O(1) | O(log n + k) binary-search | Moderate idle counts, cache-friendly. |
 | `RingQueueType` | Insertion order (FIFO) | O(1) | O(n) scan with wrap | Fixed-capacity idle pool, O(1) Pop. |
 

@@ -24,7 +24,7 @@
 - **无界任务缓冲** — 小容量内部交接 channel + 分块链表缓冲区，带背压上限（`maxChunkLen`）。
 - **阻塞 / 非阻塞提交模式** — `BLOCK` 模式下任务入队等待；`NONBLOCK` 模式下队列满时丢弃。
 - **空闲 worker 自动清理** — 后台清理器定期移除超时空闲 worker。
-- **可插拔空闲容器** — LinkedList（FIFO 链表）、MinHeap（LRU 最小堆）、Slice（FIFO 动态数组）、RingQueue（环形缓冲区，O(1) Pop）。
+- **可插拔空闲容器** — LinkedList（FIFO 链表）、MinHeap（LRU 最小堆）、Treap（LRU 树堆）、Slice（FIFO 动态数组）、RingQueue（环形缓冲区，O(1) Pop）。
 - **可重试任务** — 默认指数退避，支持自定义退避策略。
 - **Context 感知提交** — `SubmitCtx` 支持入队前和入队后的协作取消。
 - **带超时的提交** — `SubmitBefore` 设定执行截止时间。
@@ -169,6 +169,7 @@ pool.Submit(&agilepool.TaskWithRetry{
 | --- | --- | --- | --- | --- |
 | `LinkedListType` | 插入顺序（FIFO） | O(1) | O(n) 全量扫描 | 通用场景，简单 FIFO 复用。 |
 | `MinHeapType` | `lastActiveAt`（LRU） | O(log n) | O(k log n) 提前停止 | 大量 worker，高效过期扫描。 |
+| `TreapType` | `lastActiveAt`（LRU） | 期望 O(log n) | 期望 O(log n + k) | 适合批量清理大量过期 worker。 |
 | `SliceType` | 插入顺序（FIFO） | O(1) | O(log n + k) 二分查找 | 中等空闲数，缓存友好。 |
 | `RingQueueType` | 插入顺序（FIFO） | O(1) | O(n) 环形扫描 | 固定空闲容量，O(1) Pop。 |
 

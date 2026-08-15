@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+// Treap keeps idle workers ordered by lastActiveAt (LRU).
+// Bulk expiry cleanup is efficient because expired workers form a split subtree.
 type Treap struct {
 	root *treapNode
 
