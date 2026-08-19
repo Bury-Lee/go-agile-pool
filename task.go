@@ -42,7 +42,7 @@ func (t *TaskWithRetry) runBackOffStrategy() {
 
 func (t *TaskWithRetry) getBackOffTime(retryNum uint) time.Duration {
 	if t.BackOffStrategy != nil {
-		return t.BackOffStrategy(t.MinBackOff, t.MaxBackOff, t.RetryNum)
+		return t.BackOffStrategy(t.MinBackOff, t.MaxBackOff, retryNum)
 	}
 
 	return defaultBackOffStrategy(t.MinBackOff, t.MaxBackOff, retryNum)

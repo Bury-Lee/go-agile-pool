@@ -316,6 +316,27 @@ func TestAgilePoolTaskRetryTimes(t *testing.T) {
 	assert.Equal(t, times, int64(4))
 }
 
+func TestAgilePoolTaskWithRetryBackOffStrategyRetryNum(t *testing.T) {
+	var received []uint
+	task := &agilepool.TaskWithRetry{
+		MinBackOff: 1 * time.Millisecond,
+		MaxBackOff: 5 * time.Millisecond,
+		RetryNum:   3,
+		BackOffStrategy: func(min, max time.Duration, retryNum uint) time.Duration {
+			received = append(received, retryNum)
+			return 1 * time.Millisecond
+		},
+		Task: func() error {
+			return errors.New("always fail")
+		},
+	}
+
+	task.Process()
+
+	assert.Equal(t, 3, len(received))
+	assert.Equal(t, []uint{1, 2, 3}, received)
+}
+
 func TestAgilePoolTaskPanicDoesNotBreakPool(t *testing.T) {
 	agilePool := agilepool.NewPool(agilepool.NewConfig(
 		agilepool.WithWorkerNumCapacity(1),
