@@ -66,7 +66,9 @@ func (rq *RingQueue) Pop() *worker {
 
 // RemoveExpired removes all workers whose lastActiveAt + expiry <= now.
 // Since lastActiveAt is not monotonic with insertion order, a full scan is
-// required. After removal, survivors are compacted to maintain FIFO order.
+// required. Survivors are compacted in place (zero allocations): the write
+// position never passes the scan position, so a write target has always
+// already been read, which keeps FIFO order without a temporary slice.
 // O(n) where n is the number of idle workers.
 func (rq *RingQueue) RemoveExpired(now time.Time, expiry time.Duration) int {
 	n := int(atomic.LoadInt64(&rq.length))
@@ -77,26 +79,29 @@ func (rq *RingQueue) RemoveExpired(now time.Time, expiry time.Duration) int {
 	cutoff := now.Add(-expiry)
 	cap := len(rq.buf)
 
-	// Collect survivors into a temp slice first, then compact.
-	// This avoids the read-before-write hazard that occurs when the
-	// ring buffer is wrapped (head + n > cap).
-	survivors := make([]*worker, 0, n)
+	// In-place compaction: write survivors into the ring buffer positions
+	// starting at head. writeIdx (the number of survivors written so far)
+	// never exceeds the scan position i, so the write target has always
+	// been read already — no temp slice needed.
+	writeIdx := 0
 	for i := 0; i < n; i++ {
 		idx := (rq.head + i) % cap
 		w := rq.buf[idx]
-		rq.buf[idx] = nil
 		if w.lastActiveAt.After(cutoff) {
-			survivors = append(survivors, w)
+			if writeIdx != i {
+				rq.buf[(rq.head+writeIdx)%cap] = w
+			}
+			writeIdx++
 		}
 	}
 
-	removed := n - len(survivors)
-	for i, w := range survivors {
-		rq.buf[i] = w
+	// Clear the tail slots that used to hold removed workers.
+	for i := writeIdx; i < n; i++ {
+		rq.buf[(rq.head+i)%cap] = nil
 	}
 
-	rq.head = 0
-	rq.tail = len(survivors)
+	removed := n - writeIdx
+	rq.tail = (rq.head + writeIdx) % cap
 	atomic.AddInt64(&rq.length, -int64(removed))
 	return removed
 }
