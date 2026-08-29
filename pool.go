@@ -244,8 +244,20 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 		p.done()
 		return false
 	case taskBufferFull:
-		p.taskQueue <- task // block until a worker picks up
-		return true
+		// Once both queues are saturated, do not use a bare channel send:
+		// SubmitCtx promises that cancellation interrupts this wait. Listening
+		// for pool shutdown also prevents a blocked submitter from being left
+		// behind after Close.
+		select {
+		case p.taskQueue <- task:
+			return true
+		case <-ctx.Done():
+			p.done()
+			return false
+		case <-p.closePoolCn:
+			p.done()
+			return false
+		}
 	default:
 		return true
 	}
