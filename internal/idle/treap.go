@@ -1,4 +1,4 @@
-package agilepool
+package idle
 
 import (
 	"math/rand/v2"
@@ -7,45 +7,41 @@ import (
 	"time"
 )
 
-// Treap keeps idle workers ordered by lastActiveAt (LRU).
-// Bulk expiry cleanup is efficient because expired workers form a split subtree.
-type Treap struct {
-	root *treapNode
+// Treap keeps idle elements ordered by DatedTime (LRU).
+// Bulk expiry cleanup is efficient because expired elements form a split subtree.
+type Treap[T Dated] struct {
+	root *treapNode[T]
 
 	size int64
 	pool sync.Pool
 }
 
-type treapNode struct {
-	value    *worker
-	left     *treapNode
-	right    *treapNode
+type treapNode[T Dated] struct {
+	value    T
+	left     *treapNode[T]
+	right    *treapNode[T]
 	priority int
 }
 
-func newTreap() *Treap {
-	return &Treap{
+// NewTreap creates a new empty Treap.
+func NewTreap[T Dated]() *Treap[T] {
+	return &Treap[T]{
 		root: nil,
 		size: 0,
 		pool: sync.Pool{
 			New: func() interface{} {
-				return &treapNode{
-					value:    nil,
-					left:     nil,
-					right:    nil,
-					priority: 0,
-				}
+				return &treapNode[T]{}
 			},
 		},
 	}
 }
 
-func (t *Treap) split(u *treapNode, k *time.Time) (left, right *treapNode) {
+func (t *Treap[T]) split(u *treapNode[T], k *time.Time) (left, right *treapNode[T]) {
 	if u == nil {
 		return
 	}
 
-	if u.value.lastActiveAt.After(*k) {
+	if u.value.DatedTime().After(*k) {
 		left, u.left = t.split(u.left, k)
 		right = u
 		return
@@ -56,7 +52,7 @@ func (t *Treap) split(u *treapNode, k *time.Time) (left, right *treapNode) {
 	}
 }
 
-func (t *Treap) merge(left *treapNode, right *treapNode) *treapNode {
+func (t *Treap[T]) merge(left *treapNode[T], right *treapNode[T]) *treapNode[T] {
 	if left == nil {
 		return right
 	}
@@ -73,12 +69,13 @@ func (t *Treap) merge(left *treapNode, right *treapNode) *treapNode {
 	}
 }
 
-func (t *Treap) removeTree(u *treapNode) {
+func (t *Treap[T]) removeTree(u *treapNode[T]) {
 	if u == nil {
 		return
 	}
 
-	u.value = nil
+	var zero T
+	u.value = zero
 	t.removeTree(u.left)
 	u.left = nil
 	t.removeTree(u.right)
@@ -87,19 +84,22 @@ func (t *Treap) removeTree(u *treapNode) {
 	atomic.AddInt64(&t.size, -1)
 }
 
-func (t *Treap) Add(work *worker) {
-	node := t.pool.Get().(*treapNode)
+// Add inserts an element into the treap ordered by DatedTime.
+func (t *Treap[T]) Add(work T) {
+	node := t.pool.Get().(*treapNode[T])
 	node.value = work
 	node.priority = rand.Int()
 
-	left, right := t.split(t.root, &work.lastActiveAt)
+	left, right := t.split(t.root, t.keyOf(work))
 	t.root = t.merge(left, t.merge(node, right))
 	atomic.AddInt64(&t.size, 1)
 }
 
-func (t *Treap) Pop() (val *worker) {
+// Pop removes and returns the element with the smallest DatedTime.
+// Returns the zero value of T if the treap is empty.
+func (t *Treap[T]) Pop() (val T) {
 	if t.root == nil {
-		return nil
+		return
 	}
 
 	preNode := t.root
@@ -108,7 +108,8 @@ func (t *Treap) Pop() (val *worker) {
 	if node == nil {
 		t.root = preNode.right
 		val = preNode.value
-		preNode.value = nil
+		var zero T
+		preNode.value = zero
 		preNode.right = nil
 
 		t.pool.Put(preNode)
@@ -128,24 +129,33 @@ func (t *Treap) Pop() (val *worker) {
 
 	val = node.value
 	node.right = nil
-	node.value = nil
+	var zero T
+	node.value = zero
 
 	t.pool.Put(node)
 	atomic.AddInt64(&t.size, -1)
 	return
 }
 
-func (t *Treap) RemoveExpired(now time.Time, expiry time.Duration) int {
+// RemoveExpired removes all elements whose DatedTime + expiry <= now.
+// O(k log n) where k is the number of expired elements.
+func (t *Treap[T]) RemoveExpired(now time.Time, expiry time.Duration) int {
 	oriCount := atomic.LoadInt64(&t.size)
 	removeTime := now.Add(-expiry)
 
-	var leftTree *treapNode
+	var leftTree *treapNode[T]
 	leftTree, t.root = t.split(t.root, &removeTime)
 
 	t.removeTree(leftTree)
 	return int(oriCount - atomic.LoadInt64(&t.size))
 }
 
-func (t *Treap) Len() int64 {
+// Len returns the number of elements in the treap.
+func (t *Treap[T]) Len() int64 {
 	return atomic.LoadInt64(&t.size)
+}
+
+func (t *Treap[T]) keyOf(v T) *time.Time {
+	ts := v.DatedTime()
+	return &ts
 }

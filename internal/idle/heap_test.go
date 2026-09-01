@@ -1,4 +1,4 @@
-package agilepool
+package idle
 
 import (
 	"testing"
@@ -26,11 +26,11 @@ func TestMinHeap_Add(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := newMinHeap()
+			h := NewMinHeap[*testWorker]()
 			now := time.Unix(1_700_000_000, 0)
 
 			for i := 0; i < tt.addCount; i++ {
-				h.Add(&worker{
+				h.Add(&testWorker{
 					lastActiveAt: now.Add(
 						time.Duration(i) * time.Second),
 				})
@@ -46,7 +46,7 @@ func TestMinHeap_Add(t *testing.T) {
 // TestMinHeap_Pop verifies empty-heap behavior and oldest-worker-first ordering.
 func TestMinHeap_Pop(t *testing.T) {
 	t.Run("pop from empty heap", func(t *testing.T) {
-		h := newMinHeap()
+		h := NewMinHeap[*testWorker]()
 
 		if got := h.Pop(); got != nil {
 			t.Errorf("Pop() = %v, want nil", got)
@@ -58,18 +58,18 @@ func TestMinHeap_Pop(t *testing.T) {
 	})
 
 	t.Run("pop oldest worker first", func(t *testing.T) {
-		h := newMinHeap()
+		h := NewMinHeap[*testWorker]()
 		now := time.Unix(1_700_000_000, 0)
 
-		oldest := &worker{
+		oldest := &testWorker{
 			lastActiveAt: now.Add(-30 * time.Second),
 		}
 
-		middle := &worker{
+		middle := &testWorker{
 			lastActiveAt: now.Add(-20 * time.Second),
 		}
 
-		newest := &worker{
+		newest := &testWorker{
 			lastActiveAt: now.Add(-10 * time.Second),
 		}
 
@@ -78,7 +78,7 @@ func TestMinHeap_Pop(t *testing.T) {
 		h.Add(newest)
 		h.Add(oldest)
 
-		wants := []*worker{oldest, middle, newest}
+		wants := []*testWorker{oldest, middle, newest}
 
 		for i, want := range wants {
 			got := h.Pop()
@@ -112,7 +112,7 @@ func TestMinHeap_RemoveExpired(t *testing.T) {
 	expiry := 5 * time.Second
 
 	t.Run("no workers", func(t *testing.T) {
-		h := newMinHeap()
+		h := NewMinHeap[*testWorker]()
 
 		removed := h.RemoveExpired(now, expiry)
 
@@ -126,22 +126,22 @@ func TestMinHeap_RemoveExpired(t *testing.T) {
 	})
 
 	t.Run("remove expired and preserve active workers", func(t *testing.T) {
-		h := newMinHeap()
+		h := NewMinHeap[*testWorker]()
 
-		expiredOld := &worker{
+		expiredOld := &testWorker{
 			lastActiveAt: now.Add(-10 * time.Second),
 		}
 		// A worker exactly at the cutoff is expired, while one nanosecond
 		// after the cutoff remains active.
-		expiredBoundary := &worker{
+		expiredBoundary := &testWorker{
 			lastActiveAt: now.Add(-5 * time.Second),
 		}
-		activeBoundary := &worker{
+		activeBoundary := &testWorker{
 			lastActiveAt: now.Add(
 				-5*time.Second + time.Nanosecond,
 			),
 		}
-		activeNew := &worker{
+		activeNew := &testWorker{
 			lastActiveAt: now.Add(-1 * time.Second),
 		}
 
@@ -196,12 +196,12 @@ func TestMinHeap_RemoveExpired_AllActive(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	expiry := 5 * time.Second
 
-	h := newMinHeap()
+	h := NewMinHeap[*testWorker]()
 
-	older := &worker{
+	older := &testWorker{
 		lastActiveAt: now.Add(-4 * time.Second),
 	}
-	newer := &worker{
+	newer := &testWorker{
 		lastActiveAt: now.Add(-1 * time.Second),
 	}
 
@@ -231,15 +231,15 @@ func TestMinHeap_RemoveExpired_AllActive(t *testing.T) {
 func TestMinHeap_RemoveExpired_AllExpired(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	expiry := 5 * time.Second
-	h := newMinHeap()
+	h := NewMinHeap[*testWorker]()
 
-	h.Add(&worker{
+	h.Add(&testWorker{
 		lastActiveAt: now.Add(-20 * time.Second),
 	})
-	h.Add(&worker{
+	h.Add(&testWorker{
 		lastActiveAt: now.Add(-10 * time.Second),
 	})
-	h.Add(&worker{
+	h.Add(&testWorker{
 		lastActiveAt: now.Add(-5 * time.Second),
 	})
 

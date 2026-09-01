@@ -1,31 +1,17 @@
-package agilepool
+package idle
 
 import (
 	"testing"
 	"time"
 )
 
-// NewWorker creates a test worker instance.
-// Parameters:
-//
-//	lastActiveAt: the worker's last active time
-//
-// Returns:
-//
-//	*worker: a worker instance for testing
-func NewWorker(lastActiveAt time.Time) *worker {
-	return &worker{
-		lastActiveAt: lastActiveAt,
-	}
-}
-
 // TestLinkedList_Add tests the add functionality of the linked list.
-// Verifies that the list length matches expectations after adding different numbers of workers.
+// Verifies that the list length matches expectations after adding different numbers of elements.
 func TestLinkedList_Add(t *testing.T) {
 	// Define test case table covering normal and edge cases
 	tests := []struct {
 		name     string // test case name
-		addCount int    // number of workers to add
+		addCount int    // number of elements to add
 		wantLen  int64  // expected list length
 	}{
 		{
@@ -49,11 +35,11 @@ func TestLinkedList_Add(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create a new linked list instance
-			ll := newLinkedList()
+			ll := NewLinkedList[*testWorker]()
 
 			// Add the specified number of workers as required by the test case
 			for i := 0; i < tt.addCount; i++ {
-				ll.Add(NewWorker(time.Now()))
+				ll.Add(newTestWorker(time.Now()))
 			}
 
 			// Verify the list length matches expectations
@@ -69,7 +55,7 @@ func TestLinkedList_Add(t *testing.T) {
 func TestLinkedList_Pop(t *testing.T) {
 	// Scenario 1: pop from empty list
 	t.Run("pop from empty list", func(t *testing.T) {
-		ll := newLinkedList()
+		ll := NewLinkedList[*testWorker]()
 		got := ll.Pop()
 
 		// Empty list should return nil
@@ -85,8 +71,8 @@ func TestLinkedList_Pop(t *testing.T) {
 
 	// Scenario 2: pop a single worker
 	t.Run("pop single worker", func(t *testing.T) {
-		ll := newLinkedList()
-		w := NewWorker(time.Now())
+		ll := NewLinkedList[*testWorker]()
+		w := newTestWorker(time.Now())
 		ll.Add(w)
 
 		// First pop should return the added worker
@@ -108,12 +94,12 @@ func TestLinkedList_Pop(t *testing.T) {
 
 	// Scenario 3: verify FIFO (first-in-first-out) ordering
 	t.Run("pop multiple workers FIFO order", func(t *testing.T) {
-		ll := newLinkedList()
-		workers := make([]*worker, 3)
+		ll := NewLinkedList[*testWorker]()
+		workers := make([]*testWorker, 3)
 
 		// Add 3 workers in order
 		for i := 0; i < 3; i++ {
-			workers[i] = NewWorker(time.Now())
+			workers[i] = newTestWorker(time.Now())
 			ll.Add(workers[i])
 		}
 
@@ -208,11 +194,11 @@ func TestLinkedList_RemoveExpired(t *testing.T) {
 	// Run all test cases
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ll := newLinkedList()
+			ll := NewLinkedList[*testWorker]()
 
 			// Add workers as specified by the test case
 			for _, lastActive := range tt.workers {
-				ll.Add(NewWorker(lastActive))
+				ll.Add(newTestWorker(lastActive))
 			}
 
 			// Execute expired worker removal
@@ -237,13 +223,13 @@ func TestLinkedList_RemoveExpired_PreservesOrder(t *testing.T) {
 	now := time.Now()
 	expiry := 5 * time.Second
 
-	ll := newLinkedList()
+	ll := NewLinkedList[*testWorker]()
 	// Create a mixed list of expired and active workers
-	workers := []*worker{
-		NewWorker(now.Add(-6 * time.Second)), // index 0: expired, will be removed
-		NewWorker(now.Add(-2 * time.Second)), // index 1: active, should remain
-		NewWorker(now.Add(-7 * time.Second)), // index 2: expired, will be removed
-		NewWorker(now.Add(-3 * time.Second)), // index 3: active, should remain
+	workers := []*testWorker{
+		newTestWorker(now.Add(-6 * time.Second)), // index 0: expired, will be removed
+		newTestWorker(now.Add(-2 * time.Second)), // index 1: active, should remain
+		newTestWorker(now.Add(-7 * time.Second)), // index 2: expired, will be removed
+		newTestWorker(now.Add(-3 * time.Second)), // index 3: active, should remain
 	}
 
 	// Add all workers in order
@@ -271,55 +257,15 @@ func TestLinkedList_RemoveExpired_PreservesOrder(t *testing.T) {
 	}
 }
 
-// // Planned unit tests
-// // TestLinkedList_Concurrent tests concurrency safety.
-// // Verifies that the linked list does not panic or cause data races when multiple goroutines perform add and pop operations concurrently.
-// func TestLinkedList_Concurrent(t *testing.T) {
-// 	ll := newLinkedList()
-// 	var wg sync.WaitGroup
-// 	iterations := 100 // number of operations per goroutine
-// 	goroutines := 10  // number of concurrent goroutines
-
-// 	// Start multiple goroutines to perform add operations concurrently
-// 	for i := 0; i < goroutines; i++ {
-// 		wg.Add(1)
-// 		go func() {
-// 			defer wg.Done()
-// 			for j := 0; j < iterations; j++ {
-// 				ll.Add(NewWorker(time.Now()))
-// 			}
-// 		}()
-// 	}
-
-// 	// Start multiple goroutines to perform pop operations concurrently
-// 	for i := 0; i < goroutines; i++ {
-// 		wg.Add(1)
-// 		go func() {
-// 			defer wg.Done()
-// 			for j := 0; j < iterations; j++ {
-// 				ll.Pop()
-// 			}
-// 		}()
-// 	}
-
-// 	// Wait for all goroutines to finish
-// 	wg.Wait()
-
-// 	// The final length should be 0 (equal number of adds and pops)
-// 	// Note: due to non-deterministic concurrent ordering, actual length may not be 0; no strict assertion is made here.
-// 	// The test is considered passing as long as it does not panic.
-// 	_ = ll.Len()
-// }
-
 // TestLinkedList_AddAndPop_Sequence tests interleaved sequences of add and pop operations.
 // Verifies that the list behaves as expected under complex operation sequences, consistent with FIFO queue semantics.
 func TestLinkedList_AddAndPop_Sequence(t *testing.T) {
-	ll := newLinkedList()
+	ll := NewLinkedList[*testWorker]()
 
 	// Prepare 5 test workers
-	workers := make([]*worker, 5)
+	workers := make([]*testWorker, 5)
 	for i := 0; i < 5; i++ {
-		workers[i] = NewWorker(time.Now())
+		workers[i] = newTestWorker(time.Now())
 	}
 
 	// Execute interleaved operation sequence: add 3, pop 1, add 2 more, then pop all
@@ -359,8 +305,8 @@ func TestLinkedList_AddAndPop_Sequence(t *testing.T) {
 // BenchmarkLinkedList_Add benchmarks the performance of the add operation.
 // Measures the average time to add a worker to the linked list.
 func BenchmarkLinkedList_Add(b *testing.B) {
-	ll := newLinkedList()
-	w := NewWorker(time.Now())
+	ll := NewLinkedList[*testWorker]()
+	w := newTestWorker(time.Now())
 
 	b.ResetTimer() // reset the timer to exclude initialization overhead
 	for i := 0; i < b.N; i++ {
@@ -371,8 +317,8 @@ func BenchmarkLinkedList_Add(b *testing.B) {
 // BenchmarkLinkedList_Pop benchmarks the performance of the pop operation.
 // Measures the average time to pop a worker from the linked list.
 func BenchmarkLinkedList_Pop(b *testing.B) {
-	ll := newLinkedList()
-	w := NewWorker(time.Now())
+	ll := NewLinkedList[*testWorker]()
+	w := newTestWorker(time.Now())
 
 	// Pre-fill with enough workers for testing
 	for i := 0; i < b.N; i++ {
@@ -388,14 +334,14 @@ func BenchmarkLinkedList_Pop(b *testing.B) {
 // BenchmarkLinkedList_RemoveExpired benchmarks the performance of removing expired workers.
 // Measures the average time to remove expired workers from a linked list containing 1000 workers.
 func BenchmarkLinkedList_RemoveExpired(b *testing.B) {
-	ll := newLinkedList()
+	ll := NewLinkedList[*testWorker]()
 	now := time.Now()
 	expiry := 5 * time.Second
 
 	// Pre-fill with 1000 workers, each with a successively earlier active time
 	// This creates a mix of expired and non-expired states
 	for i := 0; i < 1000; i++ {
-		ll.Add(NewWorker(now.Add(-time.Duration(i) * time.Second)))
+		ll.Add(newTestWorker(now.Add(-time.Duration(i) * time.Second)))
 	}
 
 	b.ResetTimer() // reset the timer to exclude pre-filling time
@@ -405,6 +351,6 @@ func BenchmarkLinkedList_RemoveExpired(b *testing.B) {
 }
 
 func TestLinkedList_AddNil(t *testing.T) {
-	ll := newLinkedList()
+	ll := NewLinkedList[*testWorker]()
 	ll.Add(nil) // Will the current code panic?
 }
