@@ -1,4 +1,4 @@
-package agilepool
+package idle
 
 import (
 	"testing"
@@ -30,11 +30,11 @@ func TestTreap_Add(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tr := newTreap()
+			tr := NewTreap[*testWorker]()
 			now := time.Unix(1_700_000_000, 0)
 
 			for i := 0; i < tt.addCount; i++ {
-				tr.Add(NewWorker(now.Add(time.Duration(i) * time.Second)))
+				tr.Add(newTestWorker(now.Add(time.Duration(i) * time.Second)))
 			}
 
 			if got := tr.Len(); got != tt.wantLen {
@@ -46,7 +46,7 @@ func TestTreap_Add(t *testing.T) {
 
 func TestTreap_Pop(t *testing.T) {
 	t.Run("pop from empty treap", func(t *testing.T) {
-		tr := newTreap()
+		tr := NewTreap[*testWorker]()
 
 		if got := tr.Pop(); got != nil {
 			t.Errorf("Pop() = %v, want nil", got)
@@ -58,28 +58,28 @@ func TestTreap_Pop(t *testing.T) {
 	})
 
 	t.Run("pop oldest worker first", func(t *testing.T) {
-		tr := newTreap()
+		tr := NewTreap[*testWorker]()
 		now := time.Unix(1_700_000_000, 0)
 
-		oldest := NewWorker(now.Add(-30 * time.Second))
-		middle := NewWorker(now.Add(-20 * time.Second))
-		newest := NewWorker(now.Add(-10 * time.Second))
+		oldest := newTestWorker(now.Add(-30 * time.Second))
+		middle := newTestWorker(now.Add(-20 * time.Second))
+		newest := newTestWorker(now.Add(-10 * time.Second))
 
-		tr.root = &treapNode{
+		tr.root = &treapNode[*testWorker]{
 			value:    middle,
 			priority: 0,
-			left: &treapNode{
+			left: &treapNode[*testWorker]{
 				value:    oldest,
 				priority: 1,
 			},
-			right: &treapNode{
+			right: &treapNode[*testWorker]{
 				value:    newest,
 				priority: 2,
 			},
 		}
 		tr.size = 3
 
-		wants := []*worker{oldest, middle, newest}
+		wants := []*testWorker{oldest, middle, newest}
 		for i, want := range wants {
 			if got := tr.Pop(); got != want {
 				t.Errorf("Pop() order %d = %v, want %v", i, got, want)
@@ -96,13 +96,13 @@ func TestTreap_Pop(t *testing.T) {
 	})
 
 	t.Run("pop workers with the same lastActiveAt", func(t *testing.T) {
-		tr := newTreap()
+		tr := NewTreap[*testWorker]()
 		now := time.Unix(1_700_000_000, 0)
 
-		older1 := NewWorker(now.Add(-10 * time.Second))
-		older2 := NewWorker(now.Add(-10 * time.Second))
-		newer1 := NewWorker(now.Add(-9 * time.Second))
-		newer2 := NewWorker(now.Add(-9 * time.Second))
+		older1 := newTestWorker(now.Add(-10 * time.Second))
+		older2 := newTestWorker(now.Add(-10 * time.Second))
+		newer1 := newTestWorker(now.Add(-9 * time.Second))
+		newer2 := newTestWorker(now.Add(-9 * time.Second))
 
 		tr.Add(newer2)
 		tr.Add(older1)
@@ -114,8 +114,8 @@ func TestTreap_Pop(t *testing.T) {
 		}
 
 		assertTreapPopGroups(t, tr,
-			[]*worker{older1, older2},
-			[]*worker{newer1, newer2},
+			[]*testWorker{older1, older2},
+			[]*testWorker{newer1, newer2},
 		)
 	})
 }
@@ -125,7 +125,7 @@ func TestTreap_RemoveExpired(t *testing.T) {
 	expiry := 5 * time.Second
 
 	t.Run("no workers", func(t *testing.T) {
-		tr := newTreap()
+		tr := NewTreap[*testWorker]()
 
 		removed := tr.RemoveExpired(now, expiry)
 
@@ -139,14 +139,14 @@ func TestTreap_RemoveExpired(t *testing.T) {
 	})
 
 	t.Run("remove expired and preserve active workers", func(t *testing.T) {
-		tr := newTreap()
+		tr := NewTreap[*testWorker]()
 
-		expiredOld := NewWorker(now.Add(-10 * time.Second))
-		expiredBoundary := NewWorker(now.Add(-5 * time.Second))
-		activeBoundary := NewWorker(now.Add(
+		expiredOld := newTestWorker(now.Add(-10 * time.Second))
+		expiredBoundary := newTestWorker(now.Add(-5 * time.Second))
+		activeBoundary := newTestWorker(now.Add(
 			-5*time.Second + time.Nanosecond,
 		))
-		activeNew := NewWorker(now.Add(-1 * time.Second))
+		activeNew := newTestWorker(now.Add(-1 * time.Second))
 
 		tr.Add(activeNew)
 		tr.Add(expiredBoundary)
@@ -166,10 +166,10 @@ func TestTreap_RemoveExpired(t *testing.T) {
 	})
 
 	t.Run("all active", func(t *testing.T) {
-		tr := newTreap()
+		tr := NewTreap[*testWorker]()
 
-		older := NewWorker(now.Add(-4 * time.Second))
-		newer := NewWorker(now.Add(-1 * time.Second))
+		older := newTestWorker(now.Add(-4 * time.Second))
+		newer := newTestWorker(now.Add(-1 * time.Second))
 
 		tr.Add(newer)
 		tr.Add(older)
@@ -187,11 +187,11 @@ func TestTreap_RemoveExpired(t *testing.T) {
 	})
 
 	t.Run("all expired", func(t *testing.T) {
-		tr := newTreap()
+		tr := NewTreap[*testWorker]()
 
-		tr.Add(NewWorker(now.Add(-20 * time.Second)))
-		tr.Add(NewWorker(now.Add(-10 * time.Second)))
-		tr.Add(NewWorker(now.Add(-5 * time.Second)))
+		tr.Add(newTestWorker(now.Add(-20 * time.Second)))
+		tr.Add(newTestWorker(now.Add(-10 * time.Second)))
+		tr.Add(newTestWorker(now.Add(-5 * time.Second)))
 
 		removed := tr.RemoveExpired(now, expiry)
 		if removed != 3 {
@@ -208,12 +208,12 @@ func TestTreap_RemoveExpired(t *testing.T) {
 	})
 
 	t.Run("same lastActiveAt workers are removed together when expired", func(t *testing.T) {
-		tr := newTreap()
+		tr := NewTreap[*testWorker]()
 
-		expiredSameTime1 := NewWorker(now.Add(-10 * time.Second))
-		expiredSameTime2 := NewWorker(now.Add(-10 * time.Second))
-		activeSameTime1 := NewWorker(now.Add(-5*time.Second + time.Nanosecond))
-		activeSameTime2 := NewWorker(now.Add(-5*time.Second + time.Nanosecond))
+		expiredSameTime1 := newTestWorker(now.Add(-10 * time.Second))
+		expiredSameTime2 := newTestWorker(now.Add(-10 * time.Second))
+		activeSameTime1 := newTestWorker(now.Add(-5*time.Second + time.Nanosecond))
+		activeSameTime2 := newTestWorker(now.Add(-5*time.Second + time.Nanosecond))
 
 		tr.Add(activeSameTime1)
 		tr.Add(expiredSameTime1)
@@ -234,14 +234,14 @@ func TestTreap_RemoveExpired(t *testing.T) {
 }
 
 func TestTreap_AddAndPop_Sequence(t *testing.T) {
-	tr := newTreap()
+	tr := NewTreap[*testWorker]()
 	now := time.Unix(1_700_000_000, 0)
 
-	w1 := NewWorker(now.Add(-10 * time.Second))
-	w2 := NewWorker(now.Add(-8 * time.Second))
-	w3 := NewWorker(now.Add(-6 * time.Second))
-	w4 := NewWorker(now.Add(-9 * time.Second))
-	w5 := NewWorker(now.Add(-7 * time.Second))
+	w1 := newTestWorker(now.Add(-10 * time.Second))
+	w2 := newTestWorker(now.Add(-8 * time.Second))
+	w3 := newTestWorker(now.Add(-6 * time.Second))
+	w4 := newTestWorker(now.Add(-9 * time.Second))
+	w5 := newTestWorker(now.Add(-7 * time.Second))
 
 	tr.Add(w1)
 	tr.Add(w2)
@@ -257,10 +257,10 @@ func TestTreap_AddAndPop_Sequence(t *testing.T) {
 	assertTreapPopsInOrder(t, tr, w4, w2, w5, w3)
 }
 
-func assertTreapPopsOnly(t *testing.T, tr *Treap, wants ...*worker) {
+func assertTreapPopsOnly(t *testing.T, tr *Treap[*testWorker], wants ...*testWorker) {
 	t.Helper()
 
-	remaining := make(map[*worker]bool, len(wants))
+	remaining := make(map[*testWorker]bool, len(wants))
 	for _, want := range wants {
 		remaining[want] = true
 	}
@@ -278,7 +278,7 @@ func assertTreapPopsOnly(t *testing.T, tr *Treap, wants ...*worker) {
 	}
 }
 
-func assertTreapPopsInOrder(t *testing.T, tr *Treap, wants ...*worker) {
+func assertTreapPopsInOrder(t *testing.T, tr *Treap[*testWorker], wants ...*testWorker) {
 	t.Helper()
 
 	for i, want := range wants {
@@ -292,11 +292,11 @@ func assertTreapPopsInOrder(t *testing.T, tr *Treap, wants ...*worker) {
 	}
 }
 
-func assertTreapPopGroups(t *testing.T, tr *Treap, groups ...[]*worker) {
+func assertTreapPopGroups(t *testing.T, tr *Treap[*testWorker], groups ...[]*testWorker) {
 	t.Helper()
 
 	for i, group := range groups {
-		remaining := make(map[*worker]bool, len(group))
+		remaining := make(map[*testWorker]bool, len(group))
 		for _, want := range group {
 			remaining[want] = true
 		}
@@ -317,11 +317,11 @@ func assertTreapPopGroups(t *testing.T, tr *Treap, groups ...[]*worker) {
 
 func TestTreap_ReuseAfterDrain(t *testing.T) {
 	t.Run("reuse after Pop drain", func(t *testing.T) {
-		tr := newTreap()
+		tr := NewTreap[*testWorker]()
 		now := time.Unix(1_700_000_000, 0)
 
-		tr.Add(NewWorker(now.Add(-2 * time.Second)))
-		tr.Add(NewWorker(now.Add(-1 * time.Second)))
+		tr.Add(newTestWorker(now.Add(-2 * time.Second)))
+		tr.Add(newTestWorker(now.Add(-1 * time.Second)))
 		tr.Pop()
 		tr.Pop()
 
@@ -329,7 +329,7 @@ func TestTreap_ReuseAfterDrain(t *testing.T) {
 			t.Fatalf("Len() after drain = %v, want 0", got)
 		}
 
-		w := NewWorker(now)
+		w := newTestWorker(now)
 		tr.Add(w)
 
 		if got := tr.Len(); got != 1 {
@@ -342,12 +342,12 @@ func TestTreap_ReuseAfterDrain(t *testing.T) {
 	})
 
 	t.Run("reuse after RemoveExpired cleared all", func(t *testing.T) {
-		tr := newTreap()
+		tr := NewTreap[*testWorker]()
 		now := time.Unix(1_700_000_000, 0)
 		expiry := 5 * time.Second
 
-		tr.Add(NewWorker(now.Add(-10 * time.Second)))
-		tr.Add(NewWorker(now.Add(-8 * time.Second)))
+		tr.Add(newTestWorker(now.Add(-10 * time.Second)))
+		tr.Add(newTestWorker(now.Add(-8 * time.Second)))
 
 		removed := tr.RemoveExpired(now, expiry)
 		if removed != 2 {
@@ -358,7 +358,7 @@ func TestTreap_ReuseAfterDrain(t *testing.T) {
 			t.Fatalf("Len() after removal = %v, want 0", got)
 		}
 
-		w := NewWorker(now)
+		w := newTestWorker(now)
 		tr.Add(w)
 
 		if got := tr.Len(); got != 1 {

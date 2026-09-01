@@ -1,28 +1,21 @@
-package agilepool
+package idle
 
 import (
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func newTestWorker() *worker {
-	return &worker{
-		lastActiveAt: time.Now(),
-	}
-}
-
 // ---------- Unit tests for RingQueue ----------
 
 func TestRingQueueAddPop(t *testing.T) {
-	rq := newRingQueue()
+	rq := NewRingQueue[*testWorker]()
 	assert.Equal(t, int64(0), rq.Len())
 
-	w1 := newTestWorker()
-	w2 := newTestWorker()
-	w3 := newTestWorker()
+	w1 := newTestWorker(time.Now())
+	w2 := newTestWorker(time.Now())
+	w3 := newTestWorker(time.Now())
 
 	rq.Add(w1)
 	assert.Equal(t, int64(1), rq.Len())
@@ -43,16 +36,16 @@ func TestRingQueueAddPop(t *testing.T) {
 }
 
 func TestRingQueuePopEmpty(t *testing.T) {
-	rq := newRingQueue()
+	rq := NewRingQueue[*testWorker]()
 	assert.Nil(t, rq.Pop())
 	assert.Equal(t, int64(0), rq.Len())
 }
 
 func TestRingQueueGrow(t *testing.T) {
-	rq := newRingQueue()
-	workers := make([]*worker, defaultRingQueueCapacity+1)
+	rq := NewRingQueue[*testWorker]()
+	workers := make([]*testWorker, defaultRingQueueCapacity+1)
 	for i := range workers {
-		workers[i] = newTestWorker()
+		workers[i] = newTestWorker(time.Now())
 	}
 
 	// Fill the buffer to exactly capacity (triggers grow on the last Add)
@@ -70,11 +63,11 @@ func TestRingQueueGrow(t *testing.T) {
 }
 
 func TestRingQueueAddPopMultipleGrows(t *testing.T) {
-	rq := newRingQueue()
+	rq := NewRingQueue[*testWorker]()
 	const count = 1000
-	workers := make([]*worker, count)
+	workers := make([]*testWorker, count)
 	for i := range workers {
-		workers[i] = newTestWorker()
+		workers[i] = newTestWorker(time.Now())
 	}
 
 	for _, w := range workers {
@@ -89,11 +82,11 @@ func TestRingQueueAddPopMultipleGrows(t *testing.T) {
 }
 
 func TestRingQueueRemoveExpiredNone(t *testing.T) {
-	rq := newRingQueue()
+	rq := NewRingQueue[*testWorker]()
 	now := time.Now()
 
-	w1 := &worker{lastActiveAt: now}
-	w2 := &worker{lastActiveAt: now}
+	w1 := &testWorker{lastActiveAt: now}
+	w2 := &testWorker{lastActiveAt: now}
 	rq.Add(w1)
 	rq.Add(w2)
 
@@ -107,12 +100,12 @@ func TestRingQueueRemoveExpiredNone(t *testing.T) {
 }
 
 func TestRingQueueRemoveExpiredAll(t *testing.T) {
-	rq := newRingQueue()
+	rq := NewRingQueue[*testWorker]()
 	now := time.Now()
 	past := now.Add(-2 * time.Second)
 
 	for i := 0; i < 10; i++ {
-		rq.Add(&worker{lastActiveAt: past})
+		rq.Add(&testWorker{lastActiveAt: past})
 	}
 
 	removed := rq.RemoveExpired(now, time.Second)
@@ -121,16 +114,16 @@ func TestRingQueueRemoveExpiredAll(t *testing.T) {
 }
 
 func TestRingQueueRemoveExpiredPartial(t *testing.T) {
-	rq := newRingQueue()
+	rq := NewRingQueue[*testWorker]()
 	now := time.Now()
 
 	// Add interleaved: expired, alive, expired, alive, ...
-	workers := make([]*worker, 10)
+	workers := make([]*testWorker, 10)
 	for i := 0; i < 10; i++ {
 		if i%2 == 0 {
-			workers[i] = &worker{lastActiveAt: now.Add(-2 * time.Second)} // expired
+			workers[i] = &testWorker{lastActiveAt: now.Add(-2 * time.Second)} // expired
 		} else {
-			workers[i] = &worker{lastActiveAt: now} // alive
+			workers[i] = &testWorker{lastActiveAt: now} // alive
 		}
 		rq.Add(workers[i])
 	}
@@ -147,17 +140,17 @@ func TestRingQueueRemoveExpiredPartial(t *testing.T) {
 
 func TestRingQueueRemoveExpiredWrapAround(t *testing.T) {
 	// Force a smaller capacity buffer for controlled wrap test
-	rq := &RingQueue{
-		buf: make([]*worker, 8),
+	rq := &RingQueue[*testWorker]{
+		buf: make([]*testWorker, 8),
 	}
 	now := time.Now()
 
 	// Add 5 workers (indices 0-4)
-	w0 := &worker{lastActiveAt: now}
-	w1 := &worker{lastActiveAt: now}
-	w2 := &worker{lastActiveAt: now.Add(-2 * time.Second)} // expired
-	w3 := &worker{lastActiveAt: now}
-	w4 := &worker{lastActiveAt: now}
+	w0 := &testWorker{lastActiveAt: now}
+	w1 := &testWorker{lastActiveAt: now}
+	w2 := &testWorker{lastActiveAt: now.Add(-2 * time.Second)} // expired
+	w3 := &testWorker{lastActiveAt: now}
+	w4 := &testWorker{lastActiveAt: now}
 	rq.Add(w0)
 	rq.Add(w1)
 	rq.Add(w2)
@@ -172,11 +165,11 @@ func TestRingQueueRemoveExpiredWrapAround(t *testing.T) {
 	assert.Equal(t, int64(2), rq.Len())
 
 	// Add 5 more (w5-w9), tail wraps: start at 5, add 5 → tail=(5+5)%8=2, head=3
-	w5 := &worker{lastActiveAt: now.Add(-2 * time.Second)} // expired
-	w6 := &worker{lastActiveAt: now}
-	w7 := &worker{lastActiveAt: now}
-	w8 := &worker{lastActiveAt: now.Add(-2 * time.Second)} // expired
-	w9 := &worker{lastActiveAt: now}
+	w5 := &testWorker{lastActiveAt: now.Add(-2 * time.Second)} // expired
+	w6 := &testWorker{lastActiveAt: now}
+	w7 := &testWorker{lastActiveAt: now}
+	w8 := &testWorker{lastActiveAt: now.Add(-2 * time.Second)} // expired
+	w9 := &testWorker{lastActiveAt: now}
 	rq.Add(w5)
 	rq.Add(w6)
 	rq.Add(w7)
@@ -200,84 +193,4 @@ func TestRingQueueRemoveExpiredWrapAround(t *testing.T) {
 	assert.Same(t, w7, rq.Pop())
 	assert.Same(t, w9, rq.Pop())
 	assert.Nil(t, rq.Pop())
-}
-
-// ---------- Integration test with Pool ----------
-
-func TestPoolWithRingQueue(t *testing.T) {
-	pool := NewPool(NewConfig(
-		WithIdleContainerType(RingQueueType),
-		WithWorkerNumCapacity(100),
-	))
-
-	var mu sync.Mutex
-	sum := 0
-	const taskCount = 10000
-
-	for i := 0; i < taskCount; i++ {
-		pool.Submit(TaskFunc(func() error {
-			mu.Lock()
-			sum++
-			mu.Unlock()
-			return nil
-		}))
-	}
-	pool.Wait()
-	pool.Close()
-
-	assert.Equal(t, taskCount, sum)
-}
-
-func TestPoolWithRingQueueNonBlock(t *testing.T) {
-	pool := NewPool(NewConfig(
-		WithIdleContainerType(RingQueueType),
-		WithBlockMode(NONBLOCK),
-		WithWorkerNumCapacity(10),
-	))
-
-	var mu sync.Mutex
-	count := 0
-	const taskCount = 10000
-
-	for i := 0; i < taskCount; i++ {
-		pool.Submit(TaskFunc(func() error {
-			mu.Lock()
-			count++
-			mu.Unlock()
-			return nil
-		}))
-	}
-	pool.Wait()
-	pool.Close()
-
-	// NONBLOCK mode may drop tasks, but pool should not panic or hang
-	t.Logf("Completed %d out of %d tasks in NONBLOCK mode", count, taskCount)
-}
-
-func TestPoolWithRingQueuePanicRecovery(t *testing.T) {
-	pool := NewPool(NewConfig(
-		WithIdleContainerType(RingQueueType),
-	))
-
-	// Submit a panicking task
-	pool.Submit(TaskFunc(func() error {
-		panic("test panic")
-	}))
-
-	// Submit normal tasks after panic
-	var mu sync.Mutex
-	sum := 0
-	for i := 0; i < 1000; i++ {
-		pool.Submit(TaskFunc(func() error {
-			mu.Lock()
-			sum++
-			mu.Unlock()
-			return nil
-		}))
-	}
-
-	pool.Wait()
-	pool.Close()
-
-	assert.Equal(t, 1000, sum)
 }

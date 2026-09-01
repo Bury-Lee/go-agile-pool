@@ -10,6 +10,11 @@ type worker struct {
 	lastActiveAt time.Time
 }
 
+// DatedTime returns the last-active timestamp of the worker.
+// It satisfies the Dated constraint required by the idle container
+// implementations in internal/idle.
+func (w *worker) DatedTime() time.Time { return w.lastActiveAt }
+
 func newWorker(p *Pool) *worker {
 	w := &worker{
 		pool: p,

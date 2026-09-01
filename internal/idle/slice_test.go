@@ -1,4 +1,4 @@
-package agilepool
+package idle
 
 import (
 	"testing"
@@ -19,9 +19,9 @@ func TestSlice_Add(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := newSlice()
+			s := NewSlice[*testWorker]()
 			for i := 0; i < tt.addCount; i++ {
-				s.Add(NewWorker(time.Now()))
+				s.Add(newTestWorker(time.Now()))
 			}
 			if got := s.Len(); got != tt.wantLen {
 				t.Errorf("Len() = %v, want %v", got, tt.wantLen)
@@ -33,7 +33,7 @@ func TestSlice_Add(t *testing.T) {
 // TestSlice_Pop tests Pop on empty, single, and multiple workers with FIFO order.
 func TestSlice_Pop(t *testing.T) {
 	t.Run("pop from empty list", func(t *testing.T) {
-		s := newSlice()
+		s := NewSlice[*testWorker]()
 		if got := s.Pop(); got != nil {
 			t.Errorf("Pop() from empty = %v, want nil", got)
 		}
@@ -43,8 +43,8 @@ func TestSlice_Pop(t *testing.T) {
 	})
 
 	t.Run("pop single worker", func(t *testing.T) {
-		s := newSlice()
-		w := NewWorker(time.Now())
+		s := NewSlice[*testWorker]()
+		w := newTestWorker(time.Now())
 		s.Add(w)
 
 		if got := s.Pop(); got != w {
@@ -59,10 +59,10 @@ func TestSlice_Pop(t *testing.T) {
 	})
 
 	t.Run("pop multiple workers FIFO order", func(t *testing.T) {
-		s := newSlice()
-		workers := make([]*worker, 3)
+		s := NewSlice[*testWorker]()
+		workers := make([]*testWorker, 3)
 		for i := 0; i < 3; i++ {
-			workers[i] = NewWorker(time.Now())
+			workers[i] = newTestWorker(time.Now())
 			s.Add(workers[i])
 		}
 
@@ -89,7 +89,7 @@ func TestSlice_RemoveExpired(t *testing.T) {
 	expiry := 5 * time.Second
 
 	t.Run("no workers", func(t *testing.T) {
-		s := newSlice()
+		s := NewSlice[*testWorker]()
 		removed := s.RemoveExpired(now, expiry)
 		if removed != 0 {
 			t.Errorf("removed = %v, want 0", removed)
@@ -100,10 +100,10 @@ func TestSlice_RemoveExpired(t *testing.T) {
 	})
 
 	t.Run("all active", func(t *testing.T) {
-		s := newSlice()
-		w1 := NewWorker(now.Add(-2 * time.Second))
-		w2 := NewWorker(now.Add(-3 * time.Second))
-		w3 := NewWorker(now.Add(-1 * time.Second))
+		s := NewSlice[*testWorker]()
+		w1 := newTestWorker(now.Add(-2 * time.Second))
+		w2 := newTestWorker(now.Add(-3 * time.Second))
+		w3 := newTestWorker(now.Add(-1 * time.Second))
 		s.Add(w1)
 		s.Add(w2)
 		s.Add(w3)
@@ -127,10 +127,10 @@ func TestSlice_RemoveExpired(t *testing.T) {
 	})
 
 	t.Run("all expired", func(t *testing.T) {
-		s := newSlice()
-		w1 := NewWorker(now.Add(-10 * time.Second))
-		w2 := NewWorker(now.Add(-6 * time.Second))
-		w3 := NewWorker(now.Add(-8 * time.Second))
+		s := NewSlice[*testWorker]()
+		w1 := newTestWorker(now.Add(-10 * time.Second))
+		w2 := newTestWorker(now.Add(-6 * time.Second))
+		w3 := newTestWorker(now.Add(-8 * time.Second))
 		s.Add(w1)
 		s.Add(w2)
 		s.Add(w3)
@@ -148,13 +148,13 @@ func TestSlice_RemoveExpired(t *testing.T) {
 	})
 
 	t.Run("expired cluster before active", func(t *testing.T) {
-		s := newSlice()
+		s := NewSlice[*testWorker]()
 		// Two short tasks become idle first (both expired),
 		// then two long tasks finish later (both active).
-		wExp1 := NewWorker(now.Add(-6 * time.Second))
-		wExp2 := NewWorker(now.Add(-7 * time.Second))
-		wAct1 := NewWorker(now.Add(-2 * time.Second))
-		wAct2 := NewWorker(now.Add(-1 * time.Second))
+		wExp1 := newTestWorker(now.Add(-6 * time.Second))
+		wExp2 := newTestWorker(now.Add(-7 * time.Second))
+		wAct1 := newTestWorker(now.Add(-2 * time.Second))
+		wAct2 := newTestWorker(now.Add(-1 * time.Second))
 		s.Add(wExp1)
 		s.Add(wExp2)
 		s.Add(wAct1)
@@ -179,16 +179,16 @@ func TestSlice_RemoveExpired(t *testing.T) {
 	})
 
 	t.Run("interleaved expired and active", func(t *testing.T) {
-		s := newSlice()
+		s := NewSlice[*testWorker]()
 		// Production-like ordering:
 		//   Worker B: started t+5, ran 1s  → idle at t+6,  lastActiveAt=t+5
 		//   Worker A: started t+0, ran 10s → idle at t+10, lastActiveAt=t+0
 		// Insertion: B(t+5), A(t+0). More workers produce:
 		//   [expired, active, expired, active]
-		wExp1 := NewWorker(now.Add(-6 * time.Second)) // expired
-		wAct1 := NewWorker(now.Add(-2 * time.Second)) // active
-		wExp2 := NewWorker(now.Add(-7 * time.Second)) // expired
-		wAct2 := NewWorker(now.Add(-1 * time.Second)) // active
+		wExp1 := newTestWorker(now.Add(-6 * time.Second)) // expired
+		wAct1 := newTestWorker(now.Add(-2 * time.Second)) // active
+		wExp2 := newTestWorker(now.Add(-7 * time.Second)) // expired
+		wAct2 := newTestWorker(now.Add(-1 * time.Second)) // active
 		s.Add(wExp1)
 		s.Add(wAct1)
 		s.Add(wExp2)
@@ -215,9 +215,9 @@ func TestSlice_RemoveExpired(t *testing.T) {
 	})
 
 	t.Run("boundary exactly at expiry", func(t *testing.T) {
-		s := newSlice()
+		s := NewSlice[*testWorker]()
 		// lastActiveAt == now - expiry  ⇒  should be expired.
-		w := NewWorker(now.Add(-5 * time.Second))
+		w := newTestWorker(now.Add(-5 * time.Second))
 		s.Add(w)
 
 		removed := s.RemoveExpired(now, expiry)
@@ -233,9 +233,9 @@ func TestSlice_RemoveExpired(t *testing.T) {
 	})
 
 	t.Run("boundary just barely active", func(t *testing.T) {
-		s := newSlice()
+		s := NewSlice[*testWorker]()
 		// lastActiveAt == now - expiry + 1ns  ⇒  should be active.
-		w := NewWorker(now.Add(-5*time.Second + 1*time.Nanosecond))
+		w := newTestWorker(now.Add(-5*time.Second + 1*time.Nanosecond))
 		s.Add(w)
 
 		removed := s.RemoveExpired(now, expiry)
@@ -254,10 +254,10 @@ func TestSlice_RemoveExpired(t *testing.T) {
 // TestSlice_AddAndPop_Sequence tests interleaved add and pop operations,
 // verifying FIFO semantics hold across mixed operations.
 func TestSlice_AddAndPop_Sequence(t *testing.T) {
-	s := newSlice()
-	workers := make([]*worker, 5)
+	s := NewSlice[*testWorker]()
+	workers := make([]*testWorker, 5)
 	for i := 0; i < 5; i++ {
-		workers[i] = NewWorker(time.Now())
+		workers[i] = newTestWorker(time.Now())
 	}
 
 	s.Add(workers[0])
@@ -292,9 +292,9 @@ func TestSlice_AddAndPop_Sequence(t *testing.T) {
 // fully drained by Pop or RemoveExpired.
 func TestSlice_ReuseAfterDrain(t *testing.T) {
 	t.Run("reuse after Pop drain", func(t *testing.T) {
-		s := newSlice()
-		w1 := NewWorker(time.Now())
-		w2 := NewWorker(time.Now())
+		s := NewSlice[*testWorker]()
+		w1 := newTestWorker(time.Now())
+		w2 := newTestWorker(time.Now())
 		s.Add(w1)
 		s.Add(w2)
 		s.Pop()
@@ -304,7 +304,7 @@ func TestSlice_ReuseAfterDrain(t *testing.T) {
 			t.Fatalf("Len() after drain = %v, want 0", s.Len())
 		}
 
-		w3 := NewWorker(time.Now())
+		w3 := newTestWorker(time.Now())
 		s.Add(w3)
 		if s.Len() != 1 {
 			t.Errorf("Len() after re-add = %v, want 1", s.Len())
@@ -318,9 +318,9 @@ func TestSlice_ReuseAfterDrain(t *testing.T) {
 		now := time.Now()
 		expiry := 5 * time.Second
 
-		s := newSlice()
-		s.Add(NewWorker(now.Add(-10 * time.Second)))
-		s.Add(NewWorker(now.Add(-8 * time.Second)))
+		s := NewSlice[*testWorker]()
+		s.Add(newTestWorker(now.Add(-10 * time.Second)))
+		s.Add(newTestWorker(now.Add(-8 * time.Second)))
 
 		removed := s.RemoveExpired(now, expiry)
 		if removed != 2 {
@@ -330,7 +330,7 @@ func TestSlice_ReuseAfterDrain(t *testing.T) {
 			t.Fatalf("Len() after removal = %v, want 0", s.Len())
 		}
 
-		w := NewWorker(now)
+		w := newTestWorker(now)
 		s.Add(w)
 		if s.Len() != 1 {
 			t.Errorf("Len() after re-add = %v, want 1", s.Len())
@@ -350,13 +350,13 @@ func TestSlice_RemoveExpired_MultiRound(t *testing.T) {
 	// 2 seconds
 	expiry := 2 * time.Second
 
-	s := newSlice()
+	s := NewSlice[*testWorker]()
 
 	// Round 1: interleaved [exp, act, exp, act]
-	wE1 := NewWorker(now.Add(-3 * time.Second)) // expired
-	wA1 := NewWorker(now.Add(-1 * time.Second)) // active
-	wE2 := NewWorker(now.Add(-4 * time.Second)) // expired
-	wA2 := NewWorker(now)                       // active
+	wE1 := newTestWorker(now.Add(-3 * time.Second)) // expired
+	wA1 := newTestWorker(now.Add(-1 * time.Second)) // active
+	wE2 := newTestWorker(now.Add(-4 * time.Second)) // expired
+	wA2 := newTestWorker(now)                       // active
 	s.Add(wE1)
 	s.Add(wA1)
 	s.Add(wE2)
@@ -377,8 +377,8 @@ func TestSlice_RemoveExpired_MultiRound(t *testing.T) {
 	}
 
 	// Round 2: add more workers and expire them all by advancing logical time
-	wE3 := NewWorker(now.Add(-1 * time.Second))
-	wE4 := NewWorker(now.Add(-500 * time.Millisecond))
+	wE3 := newTestWorker(now.Add(-1 * time.Second))
+	wE4 := newTestWorker(now.Add(-500 * time.Millisecond))
 	s.Add(wE3)
 	s.Add(wE4)
 
@@ -396,7 +396,7 @@ func TestSlice_RemoveExpired_MultiRound(t *testing.T) {
 	}
 
 	// Round 3: reuse after all cleared
-	wFinal := NewWorker(later)
+	wFinal := newTestWorker(later)
 	s.Add(wFinal)
 	if s.Len() != 1 {
 		t.Errorf("round 3: Len() = %v, want 1", s.Len())

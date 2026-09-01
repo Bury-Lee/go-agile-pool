@@ -501,3 +501,32 @@ func TestAgilePoolBatchWithScaler(t *testing.T) {
 		})
 	}
 }
+
+// TestTaskQueueSizeConfiguresHandoffCapacity verifies that WithTaskQueueSize
+// configures the capacity of the internal handoff channel.
+// (Moved from queue_config_test.go)
+func TestTaskQueueSizeConfiguresHandoffCapacity(t *testing.T) {
+	tests := []struct {
+		name string
+		size int64
+		want int
+	}{
+		{name: "default", want: 10000},
+		{name: "custom", size: 7, want: 7},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := []agilepool.ConfigOption{}
+			if tt.size > 0 {
+				opts = append(opts, agilepool.WithTaskQueueSize(tt.size))
+			}
+			pool := agilepool.NewPool(agilepool.NewConfig(opts...))
+			defer pool.Close()
+
+			if got := pool.GetTaskQueueCapacity(); got != tt.want {
+				t.Fatalf("task queue capacity = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}

@@ -1,11 +1,30 @@
 ﻿package agilepool
 
-import "time"
+import (
+	"time"
+
+	"github.com/Yiming1997/agilePool/v2/internal/idle"
+)
+
+// IdleContainerType is an alias for the idle container selector defined in
+// internal/idle. It is re-exported here so that library consumers can keep
+// using agilepool.LinkedListType, agilepool.MinHeapType, etc.
+type IdleContainerType = idle.IdleContainerType
+
+// The idle container type constants are re-exported from internal/idle to
+// preserve the public API of the package.
+const (
+	LinkedListType = idle.LinkedListType
+	MinHeapType    = idle.MinHeapType
+	SliceType      = idle.SliceType
+	RingQueueType  = idle.RingQueueType
+	TreapType      = idle.TreapType
+)
 
 // LockType defines the lock implementation for muIdle (idle worker container lock).
 //
-//   MutexLock  = sync.Mutex, suitable for longer or unpredictable hold times
-//   SpinLock   = spin lock, suitable for very short hold times under high contention (recommended with RingQueue)
+//	MutexLock  = sync.Mutex, suitable for longer or unpredictable hold times
+//	SpinLock   = spin lock, suitable for very short hold times under high contention (recommended with RingQueue)
 type LockType int8
 
 const (
@@ -111,8 +130,10 @@ func WithScalerPeriod(d time.Duration) ConfigOption {
 }
 
 // WithLockType sets the lock type for muIdle.
-//   MutexLock — sync.Mutex (default), better performance for long hold times (avoids CPU spinning)
-//   SpinLock  — spin lock, higher throughput for very short hold times under high contention (eliminates kernel switching overhead)
+//
+//	MutexLock — sync.Mutex (default), better performance for long hold times (avoids CPU spinning)
+//	SpinLock  — spin lock, higher throughput for very short hold times under high contention (eliminates kernel switching overhead)
+//
 // If not called, defaults to MutexLock.
 func WithLockType(lockType LockType) ConfigOption {
 	return func(c *Config) {
@@ -127,4 +148,3 @@ func WithBacklogDecayFactor(factor float64) ConfigOption {
 		}
 	}
 }
-

@@ -8,6 +8,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/Yiming1997/agilePool/v2/internal/idle"
 )
 
 const (
@@ -70,7 +72,7 @@ type Pool struct {
 	closed            int32       // 1 once Close has been called, otherwise 0
 	muIdle            sync.Locker // idle container lock: sync.Mutex for MutexLock, spin lock for SpinLock
 	workerPool        sync.Pool   // Worker object pool
-	idleWorks         IdleWorkerContainer
+	idleWorks         idle.IdleContainer[*worker]
 	config            *Config
 	lock              *sync.Mutex
 	wg                sync.WaitGroup
@@ -120,16 +122,16 @@ func NewPool(c *Config) *Pool {
 	}
 
 	switch c.idleContainerType {
-	case MinHeapType:
-		p.idleWorks = newMinHeap()
-	case SliceType:
-		p.idleWorks = newSlice()
-	case RingQueueType:
-		p.idleWorks = newRingQueue()
-	case TreapType:
-		p.idleWorks = newTreap()
+	case idle.MinHeapType:
+		p.idleWorks = idle.NewMinHeap[*worker]()
+	case idle.SliceType:
+		p.idleWorks = idle.NewSlice[*worker]()
+	case idle.RingQueueType:
+		p.idleWorks = idle.NewRingQueue[*worker]()
+	case idle.TreapType:
+		p.idleWorks = idle.NewTreap[*worker]()
 	default:
-		p.idleWorks = newLinkedList()
+		p.idleWorks = idle.NewLinkedList[*worker]()
 	}
 
 	atomic.StoreInt64(&p.workerCreateCount, 0)
@@ -534,6 +536,12 @@ func (p *Pool) GetWorkerCreateCount() int64 {
 func (p *Pool) GetTaskQueueLen() int {
 	// Returns the number of tasks that have been submitted but not yet enqueued for execution.
 	return len(p.taskQueue)
+}
+
+// GetTaskQueueCapacity returns the capacity of the handoff channel
+// (taskQueue) configured for this pool.
+func (p *Pool) GetTaskQueueCapacity() int {
+	return cap(p.taskQueue)
 }
 
 // GetIdleWorkerCount returns the number of workers currently parked in
