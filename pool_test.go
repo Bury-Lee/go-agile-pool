@@ -186,6 +186,60 @@ func TestAgilePoolSubmitCtxCancelsWhileWaitingForQueueSpace(t *testing.T) {
 	assert.Equal(t, int64(0), atomic.LoadInt64(&executed))
 }
 
+func TestAgilePoolSubmitCtxCancelsAtBackpressureLimit(t *testing.T) {
+	agilePool := agilepool.NewPool(agilepool.NewConfig(
+		agilepool.WithWorkerNumCapacity(1),
+		agilepool.WithTaskQueueSize(1),
+	))
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+		agilePool.Close()
+	}()
+
+	agilePool.Submit(agilepool.TaskFunc(func() error {
+		close(started)
+		<-release
+		return nil
+	}))
+	<-started
+
+	// Fill the handoff channel, then overflow the chunked buffer up to its
+	// capacity (maxChunkLen = 100_000, internal constant). Submitting the
+	// tasks synchronously while the worker is blocked guarantees the buffer
+	// is saturated before the SubmitCtx goroutine starts, so it must hit the
+	// backpressure-limit branch.
+	agilePool.Submit(agilepool.TaskFunc(func() error { return nil }))
+	noop := agilepool.TaskFunc(func() error { return nil })
+	for i := 0; i < 100_000; i++ {
+		agilePool.Submit(noop)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	returned := make(chan struct{})
+	go func() {
+		agilePool.SubmitCtx(ctx, agilepool.TaskFunc(func() error { return nil }))
+		close(returned)
+	}()
+
+	cancel()
+	select {
+	case <-returned:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("SubmitCtx did not return after cancellation at the backpressure limit")
+	}
+
+	close(release)
+	agilePool.Wait()
+}
+
 func TestAgilePoolWorkerCapacityLimit(t *testing.T) {
 	taskCount := 10000000
 	workerCapacity := int64(10000)
