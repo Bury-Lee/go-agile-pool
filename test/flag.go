@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	agilepool "github.com/Yiming1997/agilePool"
+	agilepool "github.com/Yiming1997/agilePool/v2"
 )
 
 // TaskType controls how simulated task durations are generated.
