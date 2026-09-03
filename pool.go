@@ -214,7 +214,6 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 			go w.run(nil)
 		}
 	}
-
 	if p.config.workMode == NONBLOCK {
 		select {
 		case p.taskQueue <- task:
@@ -225,7 +224,6 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 		}
 	}
 
-	// Try fast path: push to channel directly.
 	select {
 	case p.taskQueue <- task:
 		return true
@@ -268,6 +266,10 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 type contextTask struct {
 	ctx  context.Context
 	task Task
+}
+
+func UpdateTask(ctx context.Context, task Task) *contextTask {
+	return &contextTask{ctx: ctx, task: task}
 }
 
 func (t *contextTask) Process() {
