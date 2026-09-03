@@ -289,6 +289,12 @@ type contextTask struct {
 	task Task
 }
 
+// UpdateTask wraps task with ctx so the task can observe cancellation and
+// deadlines while it is waiting in or executing from the pool.
+func UpdateTask(ctx context.Context, task Task) *contextTask {
+	return &contextTask{ctx: ctx, task: task}
+}
+
 func (t *contextTask) Process() {
 	if t.ctx.Err() != nil {
 		return
