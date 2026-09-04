@@ -223,7 +223,9 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 		hookCtx = wrapped.ctx
 		hookTask = wrapped.task
 	}
-	p.dispatchTaskSubmitted(hookCtx, hookTask)
+	if p.hooks != nil {
+		p.dispatchTaskSubmitted(hookCtx, hookTask)
+	}
 	if p.config.workMode == NONBLOCK {
 		select {
 		case p.taskQueue <- task:
@@ -237,7 +239,9 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 
 	select {
 	case p.taskQueue <- task:
-		p.dispatchTaskEnqueuedFor(task)
+		if p.hooks != nil {
+			p.dispatchTaskEnqueuedFor(task)
+		}
 		return true
 	default:
 	}
@@ -245,7 +249,9 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 	result := p.taskBuf.PushAndForward(task, func(t Task) bool {
 		select {
 		case p.taskQueue <- t:
-			p.dispatchTaskEnqueuedFor(t)
+			if p.hooks != nil {
+				p.dispatchTaskEnqueuedFor(t)
+			}
 			return true
 		default:
 			return false
@@ -263,7 +269,9 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 		// behind after Close.
 		select {
 		case p.taskQueue <- task:
-			p.dispatchTaskEnqueuedFor(task)
+			if p.hooks != nil {
+				p.dispatchTaskEnqueuedFor(task)
+			}
 			return true
 		case <-ctx.Done():
 			p.done()
@@ -283,7 +291,9 @@ func (p *Pool) dispatchTaskEnqueuedFor(task Task) {
 		ctx = wrapped.ctx
 		task = wrapped.task
 	}
-	p.dispatchTaskEnqueued(ctx, task)
+	if p.hooks != nil {
+		p.dispatchTaskEnqueued(ctx, task)
+	}
 }
 
 type contextTask struct {

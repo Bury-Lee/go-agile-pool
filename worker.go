@@ -119,7 +119,9 @@ func (w *worker) runTask(task Task) {
 		hookCtx = wrapped.ctx
 		hookTask = wrapped.task
 	}
-	w.pool.dispatchTaskStarted(hookCtx, hookTask)
+	if w.pool.hooks != nil {
+		w.pool.dispatchTaskStarted(hookCtx, hookTask)
+	}
 
 	var recovered any
 	defer func() {
@@ -129,7 +131,9 @@ func (w *worker) runTask(task Task) {
 			hookCtx = wrapped.ctx
 			hookTask = wrapped.task
 		}
-		w.pool.dispatchTaskCompleted(hookCtx, hookTask, recovered)
+		if w.pool.hooks != nil {
+			w.pool.dispatchTaskCompleted(hookCtx, hookTask, recovered)
+		}
 		w.pool.done()
 	}()
 
