@@ -51,7 +51,7 @@ func (p *Pool) OnTaskEnqueued(fn TaskHook) {
 	p.hooks.mu.Unlock()
 }
 
-// OnTaskStarted registers fn to be called right before task.Process().
+// OnTaskStarted registers fn to be called right before task execution.
 func (p *Pool) OnTaskStarted(fn TaskHook) {
 	if fn == nil {
 		return
@@ -61,7 +61,7 @@ func (p *Pool) OnTaskStarted(fn TaskHook) {
 	p.hooks.mu.Unlock()
 }
 
-// OnTaskCompleted registers fn to be called after task.Process() returns.
+// OnTaskCompleted registers fn to be called after task execution returns.
 // recovered is nil on normal completion, otherwise the panic value.
 func (p *Pool) OnTaskCompleted(fn TaskCompleteHook) {
 	if fn == nil {

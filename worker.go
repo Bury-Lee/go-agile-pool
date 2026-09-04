@@ -143,5 +143,5 @@ func (w *worker) runTask(task Task) {
 			w.pool.logger.Printf("worker exits from panic: %v\n%s\n", p, Stack(1))
 		}
 	}()
-	task.Process()
+	task.process()
 }

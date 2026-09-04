@@ -6,12 +6,17 @@ import (
 )
 
 type Task interface {
-	Process()
+	process()
+}
+
+// NewTask wraps a function as a Task so it can be submitted directly.
+func NewTask(fn func() error) Task {
+	return TaskFunc(fn)
 }
 
 type TaskFunc func() error
 
-func (tf TaskFunc) Process() {
+func (tf TaskFunc) process() {
 	tf()
 }
 
@@ -23,7 +28,7 @@ type TaskWithRetry struct {
 	Task            func() error
 }
 
-func (t *TaskWithRetry) Process() {
+func (t *TaskWithRetry) process() {
 	if t.Task() != nil {
 		t.runBackOffStrategy()
 	}

@@ -305,11 +305,11 @@ func UpdateTask(ctx context.Context, task Task) *contextTask {
 	return &contextTask{ctx: ctx, task: task}
 }
 
-func (t *contextTask) Process() {
+func (t *contextTask) process() {
 	if t.ctx.Err() != nil {
 		return
 	}
-	t.task.Process()
+	t.task.process()
 }
 
 // Submits a task with a start timeout. If timeout is reached before execution, the task is skipped.
@@ -326,7 +326,7 @@ func (p *Pool) SubmitBefore(task Task, timeout time.Duration) {
 			case <-ctx.Done():
 				return nil // Timeout reached, exit early
 			default:
-				task.Process() // Execute the task
+				task.process() // Execute the task
 			}
 			return nil
 		}),

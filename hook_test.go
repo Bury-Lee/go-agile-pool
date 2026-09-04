@@ -8,7 +8,7 @@ import (
 
 type hookTestTask struct{}
 
-func (*hookTestTask) Process() {}
+func (*hookTestTask) process() {}
 
 func TestHooksReceiveUnwrappedContextTask(t *testing.T) {
 	p := NewPool(NewConfig())

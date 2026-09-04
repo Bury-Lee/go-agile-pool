@@ -1,9 +1,12 @@
-package agilepool
+// Package context provides the thread-safe, mutable per-task Context used by
+// agilePool to carry labels and lifecycle timestamps. It lives under internal/
+// because it is an implementation detail of the pool; the public API
+// (Context, NewContext, PoolContextFrom, LabelTraceID, ...) is re-exported
+// from the root agilepool package.
+package context
 
 import (
 	"context"
-	"fmt"
-	"runtime"
 	"sync"
 	"time"
 )
@@ -16,13 +19,13 @@ const (
 	// LabelTraceID is the standard key for trace identifiers.
 	LabelTraceID = "trace_id"
 
-	// Internal keys used by TimingHook — prefixed with "_" to avoid
-	// collisions with user labels.
-	labelTiming          = "_timing"           // Empty{} if enabled
-	labelTimingSubmitted = "_timing_submitted" // time.Time
-	labelTimingEnqueued  = "_timing_enqueued"  // time.Time
-	labelTimingStarted   = "_timing_started"   // time.Time
-	labelTimingCompleted = "_timing_completed" // time.Time
+	// Internal label keys used by the timing hooks — prefixed with "_" to
+	// avoid collisions with user labels.
+	LabelTiming          = "_timing"           // Empty{} if enabled
+	LabelTimingSubmitted = "_timing_submitted" // time.Time
+	LabelTimingEnqueued  = "_timing_enqueued"  // time.Time
+	LabelTimingStarted   = "_timing_started"   // time.Time
+	LabelTimingCompleted = "_timing_completed" // time.Time
 )
 
 // ---------------------------------------------------------------------------
@@ -32,8 +35,8 @@ const (
 // Empty is a zero-allocation sentinel type.  Store an Empty{} under a key
 // to signal "enabled" without allocating a meaningful value.
 //
-//	ctx.EnableTiming()   // stores Empty{} under "_timing"
-//	_, ok := ctx.Get("_timing")  // ok==true means timing is enabled
+//	ctx.EnableTiming()   // stores Empty{} under LabelTiming
+//	_, ok := ctx.Get(LabelTiming)  // ok==true means timing is enabled
 type Empty struct{}
 
 // ---------------------------------------------------------------------------
@@ -252,37 +255,37 @@ func (c *Context) SetTraceID(id string) {
 // ---------------------------------------------------------------------------
 
 // EnableTiming marks this Context for lifecycle timing.  After calling this,
-// any registered TimingHook will record timestamps at each lifecycle stage
+// any registered timing hook will record timestamps at each lifecycle stage
 // (submitted / enqueued / started / completed).
 //
 // Check whether timing is enabled:
 //
-//	_, enabled := ctx.Get(labelTiming)
+//	_, enabled := ctx.Get(LabelTiming)
 func (c *Context) EnableTiming() {
-	c.Store(labelTiming, Empty{})
+	c.Store(LabelTiming, Empty{})
 }
 
 // IsTimingEnabled reports whether EnableTiming() was called on this Context.
 func (c *Context) IsTimingEnabled() bool {
-	_, ok := c.Get(labelTiming)
+	_, ok := c.Get(LabelTiming)
 	return ok
 }
 
-// Timing returns the four lifecycle timestamps recorded by TimingHook.
+// Timing returns the four lifecycle timestamps recorded by the timing hooks.
 // A zero time.Time means that stage was not recorded (e.g. the hook was
 // not registered, or timing was not enabled).
 func (c *Context) Timing() (submitted, enqueued, started, completed time.Time) {
-	return c.GetTime(labelTimingSubmitted),
-		c.GetTime(labelTimingEnqueued),
-		c.GetTime(labelTimingStarted),
-		c.GetTime(labelTimingCompleted)
+	return c.GetTime(LabelTimingSubmitted),
+		c.GetTime(LabelTimingEnqueued),
+		c.GetTime(LabelTimingStarted),
+		c.GetTime(LabelTimingCompleted)
 }
 
 // Duration returns the elapsed time since the task started, or 0 if no
-// start timestamp has been recorded.  TimingHook must be registered and
+// start timestamp has been recorded.  A timing hook must be registered and
 // EnableTiming() must have been called.
 func (c *Context) Duration() time.Duration {
-	start := c.GetTime(labelTimingStarted)
+	start := c.GetTime(LabelTimingStarted)
 	if start.IsZero() {
 		return 0
 	}
@@ -340,123 +343,4 @@ func (c *Context) QueueWaitLatency() time.Duration {
 		return 0
 	}
 	return started.Sub(enqueued)
-}
-
-// ---------------------------------------------------------------------------
-// TimingHook — pre-built four-phase lifecycle timing hooks
-// ---------------------------------------------------------------------------
-
-// TimingHook returns a set of four hooks that record timestamps into the
-// Context at each lifecycle stage.  The Context must have EnableTiming()
-// called on it before the hooks will record anything.
-//
-// Usage:
-//
-//	s, e, st, co := agilepool.TimingHook()
-//	pool.OnTaskSubmitted(s)
-//	pool.OnTaskEnqueued(e)
-//	pool.OnTaskStarted(st)
-//	pool.OnTaskCompleted(co)
-//
-// After completion, query timestamps via:
-//
-//	pc.Timing()          // all four time.Time values
-//	pc.Duration()        // time since started
-//	pc.TotalLatency()    // submitted → completed
-//	pc.QueueLatency()    // submitted → started
-//	pc.ExecLatency()     // started → completed
-func TimingHook() (
-	submitted TaskHook,
-	enqueued TaskHook,
-	started TaskHook,
-	completed TaskCompleteHook,
-) {
-	submitted = func(ctx context.Context, task Task) {
-		pc := PoolContextFrom(ctx)
-		if pc == nil || !pc.IsTimingEnabled() {
-			return
-		}
-		pc.Store(labelTimingSubmitted, time.Now())
-	}
-
-	enqueued = func(ctx context.Context, task Task) {
-		pc := PoolContextFrom(ctx)
-		if pc == nil || !pc.IsTimingEnabled() {
-			return
-		}
-		pc.Store(labelTimingEnqueued, time.Now())
-	}
-
-	started = func(ctx context.Context, task Task) {
-		pc := PoolContextFrom(ctx)
-		if pc == nil || !pc.IsTimingEnabled() {
-			return
-		}
-		pc.Store(labelTimingStarted, time.Now())
-	}
-
-	completed = func(ctx context.Context, task Task, recovered any) {
-		pc := PoolContextFrom(ctx)
-		if pc == nil || !pc.IsTimingEnabled() {
-			return
-		}
-		pc.Store(labelTimingCompleted, time.Now())
-	}
-
-	return
-}
-
-// ---------------------------------------------------------------------------
-// SlowTaskLogHook — detect and log slow tasks
-// ---------------------------------------------------------------------------
-
-// SlowTaskLogHook returns a TaskCompleteHook that logs a warning when a task's
-// execution time exceeds maxDuration.  TimingHook must also be registered and
-// EnableTiming() must have been called on the Context, otherwise the hook is
-// a no-op.
-//
-// The log message includes the TraceID, execution latency, threshold, and
-// the caller location (file:line function) captured via runtime.Caller so
-// operators can trace back to the hook dispatch site.
-//
-// Usage:
-//
-//	// Register TimingHook first to capture lifecycle timestamps.
-//	s, e, st, co := agilepool.TimingHook()
-//	pool.OnTaskSubmitted(s)
-//	pool.OnTaskEnqueued(e)
-//	pool.OnTaskStarted(st)
-//	pool.OnTaskCompleted(co)
-//
-//	// Then register SlowTaskLogHook as an additional completion hook.
-//	pool.OnTaskCompleted(agilepool.SlowTaskLogHook(5*time.Second, logger))
-//
-//	// In the task, enable timing on the Context:
-//	pc := agilepool.PoolContextFrom(ctx)
-//	pc.EnableTiming()
-func SlowTaskLogHook(maxDuration time.Duration, logger Logger) TaskCompleteHook {
-	return func(ctx context.Context, task Task, recovered any) {
-		pc := PoolContextFrom(ctx)
-		if pc == nil || !pc.IsTimingEnabled() {
-			return
-		}
-		d := pc.ExecLatency()
-		if d <= 0 || d <= maxDuration {
-			return
-		}
-		traceID, _ := pc.TraceID()
-
-		// Capture the caller location for diagnostics.
-		// skip=3 skips: this closure → dispatch wrapper → dispatchTaskCompleted,
-		// landing on the worker's runTask defer where the hook was triggered.
-		loc := "unknown"
-		if callerPC, file, line, ok := runtime.Caller(3); ok {
-			loc = fmt.Sprintf("%s:%d", file, line)
-			if fn := runtime.FuncForPC(callerPC); fn != nil {
-				loc += " " + fn.Name()
-			}
-		}
-		logger.Printf("[slow-task] trace_id=%s exec_latency=%v threshold=%v caller=%s",
-			traceID, d, maxDuration, loc)
-	}
 }
