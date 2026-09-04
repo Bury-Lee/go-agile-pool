@@ -50,10 +50,12 @@ pool := agilepool.NewPool(config *Config)
 ```go
 // Core interface
 type Task interface {
-    Process()
+    process()
 }
 
 // Simple function adapter
+// func() error → NewTask → Task
+pool.Submit(agilepool.NewTask(func() error { return nil }))
 type TaskFunc func() error   // func() error → TaskFunc → Task
 pool.Submit(agilepool.TaskFunc(func() error { return nil }))
 
