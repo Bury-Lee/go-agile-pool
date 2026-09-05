@@ -222,9 +222,9 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 		hookCtx = wrapped.ctx
 		hookTask = wrapped.task
 	}
-	if p.hooks != nil {
-		p.hooks.DispatchTaskSubmitted(hookCtx, hookTask)
-	}
+	p.dispatchHook(func(h hooks) {
+		h.DispatchTaskSubmitted(hookCtx, hookTask)
+	})
 	if p.config.workMode == NONBLOCK {
 		select {
 		case p.taskQueue <- task:
@@ -238,9 +238,7 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 
 	select {
 	case p.taskQueue <- task:
-		if p.hooks != nil {
-			p.dispatchTaskEnqueuedFor(task)
-		}
+		p.dispatchTaskEnqueuedFor(task)
 		return true
 	default:
 	}
@@ -248,9 +246,7 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 	result := p.taskBuf.PushAndForward(task, func(t Task) bool {
 		select {
 		case p.taskQueue <- t:
-			if p.hooks != nil {
-				p.dispatchTaskEnqueuedFor(t)
-			}
+			p.dispatchTaskEnqueuedFor(t)
 			return true
 		default:
 			return false
@@ -268,9 +264,7 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 		// behind after Close.
 		select {
 		case p.taskQueue <- task:
-			if p.hooks != nil {
-				p.dispatchTaskEnqueuedFor(task)
-			}
+			p.dispatchTaskEnqueuedFor(task)
 			return true
 		case <-ctx.Done():
 			p.done()
@@ -290,9 +284,9 @@ func (p *Pool) dispatchTaskEnqueuedFor(task Task) {
 		ctx = wrapped.ctx
 		task = wrapped.task
 	}
-	if p.hooks != nil {
-		p.hooks.DispatchTaskEnqueued(ctx, task)
-	}
+	p.dispatchHook(func(h hooks) {
+		h.DispatchTaskEnqueued(ctx, task)
+	})
 }
 
 type contextTask struct {
@@ -542,9 +536,9 @@ func (p *Pool) Close() {
 	p.taskBuf.Close()
 
 	close(p.closePoolCn)
-	if p.hooks != nil {
-		p.hooks.DispatchPoolClosed(p) // fire OnPoolClosed hooks
-	}
+	p.dispatchHook(func(h hooks) {
+		h.DispatchPoolClosed(p) // fire OnPoolClosed hooks
+	})
 }
 
 func (p *Pool) Wait() {
@@ -600,4 +594,21 @@ func (p *Pool) GetCapacity() int64 {
 func (p *Pool) SetHook(hooks hooks) error {
 	p.hooks = hooks
 	return nil
+}
+
+// dispatchHook invokes fn with the pool's hook set and absorbs any panic a
+// hooks implementation raises. internal/hook.Hooks already recovers each
+// registered callback; this guard additionally keeps a custom implementation
+// that panics mid-dispatch from crashing the submitting goroutine, a worker,
+// or Close, and from skipping pool bookkeeping such as wg.Done.
+func (p *Pool) dispatchHook(fn func(h hooks)) {
+	if p.hooks == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			p.logger.Printf("hook dispatch panicked: %v\n%s\n", r, Stack(1))
+		}
+	}()
+	fn(p.hooks)
 }
