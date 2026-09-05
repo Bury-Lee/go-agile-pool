@@ -53,7 +53,7 @@ func main() {
 	defer pool.Close()
 
 	for i := 0; i < 1000; i++ {
-		pool.Submit(agilepool.TaskFunc(func() error {
+		pool.Submit(agilepool.NewTask(func() error {
 			time.Sleep(10 * time.Millisecond)
 			return nil
 		}))
@@ -99,11 +99,13 @@ defer pool.Close()
 ### Basic submission
 
 ```go
-pool.Submit(agilepool.TaskFunc(func() error {
+pool.Submit(agilepool.NewTask(func() error {
 	// Do work here.
 	return nil
 }))
 ```
+
+`NewTask` wraps a plain `func() error` as a task. The `Task` execution method is private, so application code does not need to implement the task interface; use `TaskWithRetry` when retries are needed.
 
 `TaskFunc` returns `error` for compatibility with retry patterns; plain `Submit` does not inspect the returned error.
 

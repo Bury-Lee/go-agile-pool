@@ -99,11 +99,13 @@ defer pool.Close()
 ### 基础提交
 
 ```go
-pool.Submit(agilepool.TaskFunc(func() error {
+pool.Submit(agilepool.NewTask(func() error {
 	// 在这里执行任务逻辑。
 	return nil
 }))
 ```
+
+`NewTask` 可将普通的 `func() error` 便捷地包装为任务。`Task` 的执行方法为包内私有方法，业务代码不需要实现任务接口；需要使用重试时，可继续使用 `TaskWithRetry`。
 
 `TaskFunc` 返回 `error` 是为了兼容可重试任务模式；普通 `Submit` 不会检查返回值。
 

@@ -12,9 +12,9 @@ type bufferTestTask struct {
 	id int
 }
 
-// Process is intentionally empty: the buffer stores and forwards tasks but
+// process is intentionally empty: the buffer stores and forwards tasks but
 // never executes them. The id is the only state needed by these tests.
-func (bufferTestTask) Process() {}
+func (bufferTestTask) process() {}
 
 // fillTaskBuffer constructs an exact FIFO state without exercising
 // PushAndForward. pushTail requires its caller to hold taskMu.

@@ -371,6 +371,9 @@ func TestAgilePoolTaskRetryTimes(t *testing.T) {
 }
 
 func TestAgilePoolTaskWithRetryBackOffStrategyRetryNum(t *testing.T) {
+	agilePool := agilepool.NewPool(agilepool.NewConfig())
+	defer agilePool.Close()
+
 	var received []uint
 	task := &agilepool.TaskWithRetry{
 		MinBackOff: 1 * time.Millisecond,
@@ -385,7 +388,8 @@ func TestAgilePoolTaskWithRetryBackOffStrategyRetryNum(t *testing.T) {
 		},
 	}
 
-	task.Process()
+	agilePool.Submit(task)
+	agilePool.Wait()
 
 	assert.Equal(t, 3, len(received))
 	assert.Equal(t, []uint{1, 2, 3}, received)

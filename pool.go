@@ -99,6 +99,8 @@ type Pool struct {
 	submitHist  *histogram // submit count distribution per window
 	consumeHist *histogram // consume count distribution per window
 	exitHist    *histogram // exit count distribution per window
+
+	hooks hooks // lifecycle callbacks registered via OnTaskSubmitted etc.
 }
 
 func NewPool(c *Config) *Pool {
@@ -214,10 +216,19 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 			go w.run(nil)
 		}
 	}
-
+	hookCtx := context.Background()
+	hookTask := task
+	if wrapped, ok := task.(*contextTask); ok {
+		hookCtx = wrapped.ctx
+		hookTask = wrapped.task
+	}
+	if p.hooks != nil {
+		p.hooks.DispatchTaskSubmitted(hookCtx, hookTask)
+	}
 	if p.config.workMode == NONBLOCK {
 		select {
 		case p.taskQueue <- task:
+			p.dispatchTaskEnqueuedFor(task)
 			return true
 		default:
 			p.done()
@@ -225,9 +236,11 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 		}
 	}
 
-	// Try fast path: push to channel directly.
 	select {
 	case p.taskQueue <- task:
+		if p.hooks != nil {
+			p.dispatchTaskEnqueuedFor(task)
+		}
 		return true
 	default:
 	}
@@ -235,6 +248,9 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 	result := p.taskBuf.PushAndForward(task, func(t Task) bool {
 		select {
 		case p.taskQueue <- t:
+			if p.hooks != nil {
+				p.dispatchTaskEnqueuedFor(t)
+			}
 			return true
 		default:
 			return false
@@ -252,6 +268,9 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 		// behind after Close.
 		select {
 		case p.taskQueue <- task:
+			if p.hooks != nil {
+				p.dispatchTaskEnqueuedFor(task)
+			}
 			return true
 		case <-ctx.Done():
 			p.done()
@@ -265,16 +284,31 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 	}
 }
 
+func (p *Pool) dispatchTaskEnqueuedFor(task Task) {
+	ctx := context.Background()
+	if wrapped, ok := task.(*contextTask); ok {
+		ctx = wrapped.ctx
+		task = wrapped.task
+	}
+	if p.hooks != nil {
+		p.hooks.DispatchTaskEnqueued(ctx, task)
+	}
+}
+
 type contextTask struct {
 	ctx  context.Context
 	task Task
 }
 
-func (t *contextTask) Process() {
+func UpdateTask(ctx context.Context, task Task) *contextTask {
+	return &contextTask{ctx: ctx, task: task}
+}
+
+func (t *contextTask) process() {
 	if t.ctx.Err() != nil {
 		return
 	}
-	t.task.Process()
+	t.task.process()
 }
 
 // Submits a task with a start timeout. If timeout is reached before execution, the task is skipped.
@@ -291,7 +325,7 @@ func (p *Pool) SubmitBefore(task Task, timeout time.Duration) {
 			case <-ctx.Done():
 				return nil // Timeout reached, exit early
 			default:
-				task.Process() // Execute the task
+				task.process() // Execute the task
 			}
 			return nil
 		}),
@@ -508,6 +542,9 @@ func (p *Pool) Close() {
 	p.taskBuf.Close()
 
 	close(p.closePoolCn)
+	if p.hooks != nil {
+		p.hooks.DispatchPoolClosed(p) // fire OnPoolClosed hooks
+	}
 }
 
 func (p *Pool) Wait() {
@@ -558,4 +595,9 @@ func (p *Pool) GetIdleWorkerCount() int64 {
 // Using a getter function provides a more idiomatic and professional API.
 func (p *Pool) GetCapacity() int64 {
 	return p.capacity
+}
+
+func (p *Pool) SetHook(hooks hooks) error {
+	p.hooks = hooks
+	return nil
 }
