@@ -2,14 +2,13 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
-	"math/rand/v2"
 	"net/http"
 	"sync"
 	"time"
 
 	agilepool "github.com/Yiming1997/agilePool/v2"
+	hook "github.com/Yiming1997/agilePool/v2/internal/hook"
 	"github.com/gin-gonic/gin"
 )
 
@@ -21,16 +20,24 @@ var pool = agilepool.NewPool(agilepool.NewConfig(
 	agilepool.WithWorkerNumCapacity(8),
 ))
 
-// taskStartTimes associates each traceID with the time when its pool task
-// started. sync.Map is used because hooks run concurrently across workers.
+// A newly-created Pool has hooks == nil, so hooks are disabled. Registering
+// any non-nil callback enables hook dispatch for that Pool.
 var taskStartTimes sync.Map
 
 func main() {
 	defer pool.Close()
-	// Register lifecycle hooks: the start hook records the timestamp, and the
-	// completion hook calculates the elapsed time for the same traceID.
-	pool.OnTaskStarted(DebugHook)
-	pool.OnTaskCompleted(DebugCompleteHook)
+
+	// Register callbacks before submitting tasks. Hook callbacks run in the
+	// submitting goroutine, worker goroutine, or Close caller as appropriate.
+	// The registration calls are shown above because this version does not yet
+	// expose them on agilepool.Pool.
+	var hook = hook.NewHooks()
+	hook.AddTaskSubmitted(onSubmitted)
+	hook.AddTaskEnqueued(onEnqueued)
+	hook.AddTaskStarted(onStarted)
+	hook.AddTaskCompleted(onCompleted)
+	hook.AddPoolClosed(onPoolClosed)
+	pool.SetHook(hook)
 	r := gin.Default()
 	r.Use(PoolMiddleware)
 	// This example shows how to limit concurrency for incoming requests.
@@ -38,28 +45,33 @@ func main() {
 	_ = r.Run("127.0.0.1:8080")
 }
 
-func DebugHook(ctx context.Context, task agilepool.Task) {
+func onSubmitted(ctx context.Context, task agilepool.Task) {
+	log.Printf("task submitted task=%T", task)
+}
+
+func onEnqueued(ctx context.Context, task agilepool.Task) {
+	log.Printf("task enqueued task=%T", task)
+}
+
+func onStarted(ctx context.Context, task agilepool.Task) {
 	if c, ok := ctx.(*gin.Context); ok {
-		// UpdateTask preserves this Gin context, so the hook can read request
-		// metadata that was attached before the task was submitted.
 		traceID, _ := c.Get("traceID")
 		taskStartTimes.Store(traceID, time.Now())
-		fmt.Println("task started", traceID, c.ClientIP())
+		log.Printf("task started traceID=%v clientIP=%s", traceID, c.ClientIP())
 	}
 }
 
-func DebugCompleteHook(ctx context.Context, task agilepool.Task, recovered any) {
+func onCompleted(ctx context.Context, task agilepool.Task, recovered any) {
 	if c, ok := ctx.(*gin.Context); ok {
 		traceID, _ := c.Get("traceID")
-		// LoadAndDelete both reads the start time and releases it after the
-		// task completes, preventing completed requests from accumulating.
 		if started, exists := taskStartTimes.LoadAndDelete(traceID); exists {
-			duration := time.Since(started.(time.Time))
-			// recovered is nil for normal completion and contains the panic
-			// value when the pool recovered a panic from the task.
-			log.Printf("task completed traceID=%v duration=%s recovered=%v", traceID, duration, recovered)
+			log.Printf("task completed traceID=%v duration=%s recovered=%v", traceID, time.Since(started.(time.Time)), recovered)
 		}
 	}
+}
+
+func onPoolClosed(p *agilepool.Pool) {
+	log.Println("pool closed")
 }
 
 type Content struct {
@@ -67,14 +79,12 @@ type Content struct {
 }
 
 // PoolMiddleware runs the complete Gin handler chain in an agilePool task.
-// UpdateTask keeps the original Gin context available to the task and hooks.
+// UpdateTask keeps the original Gin context available to the task.
 func PoolMiddleware(c *gin.Context) {
 	// done keeps the HTTP request open until the pool worker finishes the
 	// complete Gin handler chain and writes the response.
 	done := make(chan struct{})
-	// Set metadata before submission so the start hook can read it regardless
-	// of how long the task waits in the pool queue.
-	c.Set("traceID", rand.Int64())
+	c.Set("traceID", time.Now().UnixNano())
 	// UpdateTask carries the Gin context through the pool. The worker executes
 	// c.Next(), so normal handlers can write responses in the usual way.
 	task := agilepool.UpdateTask(c, agilepool.TaskFunc(func() error {

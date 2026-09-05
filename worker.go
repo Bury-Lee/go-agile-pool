@@ -120,7 +120,7 @@ func (w *worker) runTask(task Task) {
 		hookTask = wrapped.task
 	}
 	if w.pool.hooks != nil {
-		w.pool.dispatchTaskStarted(hookCtx, hookTask)
+		w.pool.hooks.DispatchTaskStarted(hookCtx, hookTask)
 	}
 
 	var recovered any
@@ -132,7 +132,7 @@ func (w *worker) runTask(task Task) {
 			hookTask = wrapped.task
 		}
 		if w.pool.hooks != nil {
-			w.pool.dispatchTaskCompleted(hookCtx, hookTask, recovered)
+			w.pool.hooks.DispatchTaskCompleted(hookCtx, hookTask, recovered)
 		}
 		w.pool.done()
 	}()

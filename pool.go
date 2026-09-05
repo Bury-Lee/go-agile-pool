@@ -100,7 +100,7 @@ type Pool struct {
 	consumeHist *histogram // consume count distribution per window
 	exitHist    *histogram // exit count distribution per window
 
-	hooks *hooks // lifecycle callbacks registered via OnTaskSubmitted etc.
+	hooks hooks // lifecycle callbacks registered via OnTaskSubmitted etc.
 }
 
 func NewPool(c *Config) *Pool {
@@ -116,7 +116,6 @@ func NewPool(c *Config) *Pool {
 		capacity:    c.workerNumCapacity,
 		taskQueue:   make(chan Task, c.taskQueueSize),
 		taskBuf:     newChunkedTaskBuffer(),
-		hooks:       newHooks(),
 	}
 
 	// Select muIdle lock implementation based on config: SpinLock or MutexLock (sync.Mutex)
@@ -224,7 +223,7 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 		hookTask = wrapped.task
 	}
 	if p.hooks != nil {
-		p.dispatchTaskSubmitted(hookCtx, hookTask)
+		p.hooks.DispatchTaskSubmitted(hookCtx, hookTask)
 	}
 	if p.config.workMode == NONBLOCK {
 		select {
@@ -292,7 +291,7 @@ func (p *Pool) dispatchTaskEnqueuedFor(task Task) {
 		task = wrapped.task
 	}
 	if p.hooks != nil {
-		p.dispatchTaskEnqueued(ctx, task)
+		p.hooks.DispatchTaskEnqueued(ctx, task)
 	}
 }
 
@@ -543,8 +542,9 @@ func (p *Pool) Close() {
 	p.taskBuf.Close()
 
 	close(p.closePoolCn)
-
-	p.dispatchPoolClosed() // fire OnPoolClosed hooks
+	if p.hooks != nil {
+		p.hooks.DispatchPoolClosed(p) // fire OnPoolClosed hooks
+	}
 }
 
 func (p *Pool) Wait() {
@@ -595,4 +595,9 @@ func (p *Pool) GetIdleWorkerCount() int64 {
 // Using a getter function provides a more idiomatic and professional API.
 func (p *Pool) GetCapacity() int64 {
 	return p.capacity
+}
+
+func (p *Pool) SetHook(hooks hooks) error {
+	p.hooks = hooks
+	return nil
 }
