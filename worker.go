@@ -113,35 +113,34 @@ loop:
 func (w *worker) runTask(task Task) {
 	atomic.AddInt64(&w.pool.consumeCount, 1)
 
+	// Balance the submit-side wg.Add exactly once per task. Registered before
+	// any hook dispatch and kept on its own defer, so a hook implementation
+	// that panics cannot skip done() and deadlock Wait()/Close().
+	defer w.pool.done()
+
 	hookCtx := context.Background()
 	hookTask := task
 	if wrapped, ok := task.(*contextTask); ok {
 		hookCtx = wrapped.ctx
 		hookTask = wrapped.task
 	}
-	if w.pool.hooks != nil {
-		w.pool.hooks.DispatchTaskStarted(hookCtx, hookTask)
-	}
 
+	// Capture task panics so the Completed hook can observe the recovered
+	// value. dispatchHook guards the hook call itself; w.pool.done() above
+	// runs afterwards regardless of what the hooks do.
 	var recovered any
-	defer func() {
-		hookCtx := context.Background()
-		hookTask := task
-		if wrapped, ok := task.(*contextTask); ok {
-			hookCtx = wrapped.ctx
-			hookTask = wrapped.task
-		}
-		if w.pool.hooks != nil {
-			w.pool.hooks.DispatchTaskCompleted(hookCtx, hookTask, recovered)
-		}
-		w.pool.done()
-	}()
-
 	defer func() {
 		if p := recover(); p != nil {
 			recovered = p
 			w.pool.logger.Printf("worker exits from panic: %v\n%s\n", p, Stack(1))
 		}
+		w.pool.dispatchHook(func(h hooks) {
+			h.DispatchTaskCompleted(hookCtx, hookTask, recovered)
+		})
 	}()
+
+	w.pool.dispatchHook(func(h hooks) {
+		h.DispatchTaskStarted(hookCtx, hookTask)
+	})
 	task.process()
 }
