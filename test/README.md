@@ -1,9 +1,9 @@
 # agilepool Test Harness (Plugin-Based)
 
-The performance test tool for go-agile-pool; the legacy tool is archived in
-`old/`. The full design document and **plugin authoring guide** (English)
-live in [`docs/test-harness.md`](../docs/test-harness.md), and a runnable
-integration example is in [`example.go`](example.go). Chinese version:
+The performance test tool for go-agile-pool. The full design document and
+**plugin authoring guide** (English) live in
+[`docs/test-harness.md`](../docs/test-harness.md), and a runnable integration
+example is in [`example.go`](example.go). Chinese version:
 [`README_zh-CN.md`](README_zh-CN.md).
 
 ## What this is
@@ -26,6 +26,23 @@ segments, plans dependencies and drives the lifecycle. **Adding a capability
 | `--hook` | event instrumentation | `mode`(none; hook counters; trace pending upstream tracing) | — |
 | `--metrics` | periodic sampling + summary | `interval`(1s) `format`(csv) `file`(metrics.csv) `wait-exit`(0) | Start sampler / End final tick + window + summary |
 | `--profile` | pprof enveloping the session | `cpu`(false) `mem`(false) | Start CPU / End stop CPU + write heap |
+
+### Hook-stability stress plugins (`h*` family)
+
+Each is a standalone scenario that builds its own private pools, installs
+adversarial hooks and asserts PASS/FAIL invariants (exit 1 on the first
+FAIL). They are deliberately dependency-free so `--hcount` alone works:
+
+| Segment | Scenario under stress | Key options (default) |
+|---|---|---|
+| `--hcount` | exact per-event accounting: N callbacks × M tasks, no lost/duplicated event | `num`(20000) `hooks`(8) `workers`(1000) |
+| `--hpanic` | panicking hooks must not kill submit/worker/Close paths | `num`(3000) `level`(dispatch/callback) `stage`(all/…) |
+| `--horder` | per-task order (Submitted first, Started before Completed) + ctx payload + panic-value fidelity | `num`(20000) `panics`(2000) `workers`(1000) |
+| `--hctx` | ctx payload through all events; pre-canceled and cancel-while-queued semantics | `num`(3000) `queued`(150) |
+| `--hblock` | slow/blocking hooks must not deadlock or lose events | `num`(5000) `delay-us`(200) `workers`(200) |
+| `--hchurn` | concurrent registration burst before dispatch (contract window), exact accounting | `num`(10000) `num2`(5000) `churners`(4) `adds`(25) |
+| `--hreenter` | reentrant dispatch: hooks that submit new tasks | `num`(2000) `budget`(2000) `depth`(32) `stage`(submitted/completed) |
+| `--hclose` | OnPoolClosed exactly-once (incl. racing Close) and post-close silence | `num`(2000) `closers`(4) |
 
 Submit strategies: immediate / linear / constant / poisson / phased. Task
 duration types: fixed / uniform / normal. Dependencies:
@@ -56,7 +73,14 @@ file names):
 ```text
 run_test.bat        # Windows
 run_test.sh         # Linux/macOS
+run_hook_stress.bat # Windows: all h* hook-stability scenarios
+run_hook_stress.sh  # Linux/macOS: same; run_hook_stress.* race -> -race build
 ```
+
+`test/` is its own Go module (`github.com/Yiming1997/agilePool/v2/test`); a
+`replace` directive points the `github.com/Yiming1997/agilePool/v2` import
+at the repo root directory, so the harness always builds against the local
+library and never downloads it.
 
 ## Conventions at a glance
 
@@ -95,9 +119,12 @@ test/
   plugins.go        central registration table
   example.go        demo plugins provider/consumer (not registered by default)
   pool.go ...       the six real plugins (one file per plugin)
+  hookcheck.go      shared machinery for the h* stability family
+  hcount.go ...     the eight h* hook-stability plugins (h*.go, one per file)
   run_test.bat      Windows regression script (new syntax)
   run_test.sh       Linux/macOS regression script (same scenarios as the bat)
-  old/              legacy tool archive (sources/plot scripts, not compiled)
+  run_hook_stress.bat/.sh  hook-stability scenario scripts (optional `race` arg)
+  plot_csv.py       plots metrics_*.csv into per-file SVGs (run from the results dir)
 ```
 
 Code comments are English, matching the rest of the library; the design doc

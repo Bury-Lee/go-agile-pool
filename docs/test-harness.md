@@ -7,9 +7,9 @@ overview and the scenario scripts see `test/README.md`.
 
 ## 1. Why plugins
 
-The legacy tool (archived in `test/old/`) flattened pool options, task
-duration models, submit strategies, instrumentation, sampling and profiling
-into one `main` with short-flag prefixes (`-T`, `-U`, `-w`, ...). That made
+The legacy tool flattened pool options, task duration models, submit
+strategies, instrumentation, sampling and profiling into one `main` with
+short-flag prefixes (`-T`, `-U`, `-w`, ...). That made
 options ambiguous and scenarios hard to compose. The harness now treats
 **every capability as a plugin** and the command line as a composition of
 plugin segments:
@@ -231,10 +231,69 @@ Legacy flag → new segment mapping used by the scenario scripts
 | `-i T -f F -o FILE -e W` | `--metrics interval=T format=F file=FILE wait-exit=W` |
 | `--cpuprofile --memprofile` | `--profile cpu=true mem=true` |
 
+### 6.1 Hook-stability family (`hcount`/`hpanic`/`horder`/`hctx`/`hblock`/`hchurn`/`hreenter`/`hclose`)
+
+The `h*` plugins stress-test the stability of the hook system rather than
+benchmarking it. They share three design rules:
+
+1. **Self-contained**: every scenario builds its own private pools with a
+   known capacity and `queue == task count`, so invariants are
+   deterministic (the direct channel path fires Enqueued exactly once per
+   task; the overflow-buffer path may skip it by design) and Close can be
+   exercised without touching the session `--pool`.
+2. **Adversarial hooks within the registration contract**: callbacks are
+   registered up front (before the pool starts processing — the contract's
+   registration window) but are otherwise hostile: they panic, sleep, or
+   resubmit tasks; registration itself is stressed from many goroutines at
+   once. Registering *during* live dispatch is outside the contract and is
+   never done (see §7).
+3. **Explicit invariants**: each scenario prints `PASS`/`FAIL` lines and
+   returns an error on the first failure; the host maps it to exit code 1.
+   The shared machinery (scenario pool builder, atomic counters, drain and
+   goroutine-leak waiters, reporting) lives in `hookcheck.go` so each
+   scenario file is just its scenario.
+
+| Plugin | Invariants asserted (per task unless noted) |
+|---|---|
+| `hcount` | with N callbacks × M tasks: every event counter lands on N·M, no loss/duplication; tasks executed == M; no goroutine leak |
+| `hpanic` | callbacks (bundled `Hooks`) or whole dispatch (hostile impl) panicking at each stage still let the pool execute, drain, and Close; follow-up burst after detaching hooks also runs; post-close submissions stay silent |
+| `horder` | per id (carried via `SubmitCtx`): Submitted is the first event, Started precedes Completed, no duplicates; ctx payload reaches all events; Completed delivers the exact panic value (nil otherwise) |
+| `hctx` | ctx payloads reach all events; already-canceled contexts fire nothing; cancel-while-queued still yields Started == Completed per dequeued task and a clean drain |
+| `hblock` | callbacks sleeping `delay-us` never deadlock the pool and every event counter is exact |
+| `hchurn` | registration burst from many goroutines happens strictly before any dispatch; pre-registered and burst hooks then all see every event exactly (no loss/duplication through the contended window); a fresh `Hooks` instance afterwards accounts exactly |
+| `hreenter` | hooks that submit new tasks (bounded by `budget`/`depth`) drain with exact counters for originals + reentries |
+| `hclose` | OnPoolClosed fires exactly once (sequential and racing Close), with pool identity; panicking PoolClosed callbacks/dispatch don't abort Close; post-close submissions fire no events |
+
+`run_hook_stress.bat` / `run_hook_stress.sh` run the whole family;
+`run_hook_stress.* race` builds with `-race` first, so the entire family —
+including the contended registration burst of `hchurn` — is proven
+race-free in CI.
+
+Notes for interpretation:
+
+- `hpanic level=callback` logs each recovered panic to stderr by design
+  (that is the bundled `Hooks` logger working); the scripts silence it.
+- A scenario pool only asserts what is a real happens-before guarantee.
+  Enqueued may legitimately land after Started when a worker dequeues the
+  task before the submitter's enqueue callback runs, so no `h*` assertion
+  depends on Enqueued-vs-Started ordering.
+
 ## 7. Status and notes
 
+- `test/` is a nested Go module (`github.com/Yiming1997/agilePool/v2/test`,
+  own `go.mod`) whose `replace` points the library import at the repo root,
+  so the harness builds against the local tree, never the network copy. The
+  module path keeps the library prefix so `internal/hook` stays importable.
+- Registration contract of `internal/hook.Hooks`: callbacks are added
+  before the pool starts processing (typically from setup code, possibly
+  concurrently — `Add*` is mutex-guarded). Dispatch reads the frozen lists
+  and never synchronizes with registration; adding a callback while events
+  are being dispatched is **outside the contract** and would race on the
+  callback slices. Scenarios follow the contract: they register before the
+  first task (`hchurn` stresses exactly that window) and never call `Add*`
+  from a running pool.
 - Metrics CSV/JSON columns and formats are preserved from the legacy tool
   column for column (the CSV header is written on the first tick).
 - `--hook mode=trace` is intentionally rejected until the upstream
   context-tracing API (`internal/context`) is wired.
-- The old implementation is archived under `test/old/` (not compiled).
+- The superseded legacy implementation remains available in the git history.

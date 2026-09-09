@@ -41,4 +41,4 @@ go build -o agilepool_test .
 ./agilepool_test --pool workers=10000 --task type=fixed base=500 --submit strategy=immediate num=200000 --metrics interval=1 format=csv file=metrics_fixed_w10000_t200000_linkedlist.csv wait-exit=3
 ./agilepool_test --pool workers=10000 container=minheap mode=nonblock --task type=uniform base=500 extra=100 --submit strategy=linear num=8000 interval=15 jitter=5 --metrics interval=1 format=json file=metrics_uniform_w10000_t8000_minheap.json wait-exit=5
 
-python old/plot_csv.py
+python plot_csv.py
