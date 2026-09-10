@@ -1,12 +1,12 @@
 // test/ is a separate module so the harness and its heavy deps
-// (gopsutil) never pollute the root library module. The module path keeps
-// the github.com/Yiming1997/agilePool/v2 prefix so internal packages
-// (internal/hook) stay importable, and the replace below forces every
-// agilePool import to resolve to the root directory on disk: building the
-// harness never downloads or uses the network copy of the library.
+// (gopsutil) never pollute the root library module. The replace below forces
+// every agilePool import to resolve to the root directory on disk: building
+// the harness never downloads or uses the network copy of the library. The
+// go directive tracks the library's minimum so the harness builds with the
+// same toolchain as the root module.
 module github.com/Yiming1997/agilePool/v2/test
 
-go 1.26.4
+go 1.23.4
 
 require (
 	github.com/Yiming1997/agilePool/v2 v2.1.0
