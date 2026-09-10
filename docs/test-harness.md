@@ -231,16 +231,20 @@ Legacy flag → new segment mapping used by the scenario scripts
 | `-i T -f F -o FILE -e W` | `--metrics interval=T format=F file=FILE wait-exit=W` |
 | `--cpuprofile --memprofile` | `--profile cpu=true mem=true` |
 
-### 6.1 Hook-stability family (`hcount`/`hpanic`/`horder`/`hctx`/`hblock`/`hchurn`/`hreenter`/`hclose`)
+### 6.1 Hook-stability family (`hcount`/`hpanic`/`horder`/`hctx`/`hblock`/`hchurn`/`hreenter`/`hclose`/`henqueue`)
 
 The `h*` plugins stress-test the stability of the hook system rather than
 benchmarking it. They share three design rules:
 
 1. **Self-contained**: every scenario builds its own private pools with a
-   known capacity and `queue == task count`, so invariants are
+   known capacity and mostly `queue == task count`, so invariants are
    deterministic (the direct channel path fires Enqueued exactly once per
-   task; the overflow-buffer path may skip it by design) and Close can be
-   exercised without touching the session `--pool`.
+   task) and Close can be exercised without touching the session `--pool`.
+   `henqueue` is the exception on purpose: it uses a queue far smaller than
+   the task count to force the overflow-buffer path and asserts that
+   Enqueued still fires exactly once per accepted task there, that a slow
+   Enqueued callback does not stall the pool, and that a reentrant Enqueued
+   callback does not deadlock.
 2. **Adversarial hooks within the registration contract**: callbacks are
    registered up front (before the pool starts processing — the contract's
    registration window) but are otherwise hostile: they panic, sleep, or
@@ -249,20 +253,23 @@ benchmarking it. They share three design rules:
    never done (see §7).
 3. **Explicit invariants**: each scenario prints `PASS`/`FAIL` lines and
    returns an error on the first failure; the host maps it to exit code 1.
-   The shared machinery (scenario pool builder, atomic counters, drain and
-   goroutine-leak waiters, reporting) lives in `hookcheck.go` so each
-   scenario file is just its scenario.
+   `hpanic` keeps running every stage after a failure, and the runner
+   scripts keep running every scenario after a failure, so one broken area
+   never hides another. The shared machinery (scenario pool builder, atomic
+   counters, drain and goroutine-leak waiters, reporting) lives in
+   `hookcheck.go` so each scenario file is just its scenario.
 
 | Plugin | Invariants asserted (per task unless noted) |
 |---|---|
 | `hcount` | with N callbacks × M tasks: every event counter lands on N·M, no loss/duplication; tasks executed == M; no goroutine leak |
-| `hpanic` | callbacks (bundled `Hooks`) or whole dispatch (hostile impl) panicking at each stage still let the pool execute, drain, and Close; follow-up burst after detaching hooks also runs; post-close submissions stay silent |
+| `hpanic` | callbacks (bundled `Hooks`) or whole dispatch (hostile impl) panicking at each stage still let the pool execute, drain, and Close; at callback level the panicking callback is sandwiched between two counter sets, so both siblings must see every event (a recover path that panics itself starves the second set); follow-up burst after detaching hooks also runs; post-close submissions stay silent |
 | `horder` | per id (carried via `SubmitCtx`): Submitted is the first event, Started precedes Completed, no duplicates; ctx payload reaches all events; Completed delivers the exact panic value (nil otherwise) |
 | `hctx` | ctx payloads reach all events; already-canceled contexts fire nothing; cancel-while-queued still yields Started == Completed per dequeued task and a clean drain |
 | `hblock` | callbacks sleeping `delay-us` never deadlock the pool and every event counter is exact |
 | `hchurn` | registration burst from many goroutines happens strictly before any dispatch; pre-registered and burst hooks then all see every event exactly (no loss/duplication through the contended window); a fresh `Hooks` instance afterwards accounts exactly |
 | `hreenter` | hooks that submit new tasks (bounded by `budget`/`depth`) drain with exact counters for originals + reentries |
 | `hclose` | OnPoolClosed fires exactly once (sequential and racing Close), with pool identity; panicking PoolClosed callbacks/dispatch don't abort Close; post-close submissions fire no events |
+| `henqueue` | with `queue << tasks` (overflow-buffer path): all four counters land on num, i.e. Enqueued fires exactly once per accepted task; a slow Enqueued callback does not stall the pool; a reentrant Enqueued callback (bounded by `reenter`) drains with exact counters for originals + reentries. The reentrancy wave runs `attempts` independent attempts on fresh pools because the self-deadlock window is narrow; each attempt's submit loop runs on a watchdog goroutine, so a wedged submitter reports FAIL instead of hanging, and the first deadlock stops the wave |
 
 `run_hook_stress.bat` / `run_hook_stress.sh` run the whole family;
 `run_hook_stress.* race` builds with `-race` first, so the entire family —
@@ -271,12 +278,23 @@ race-free in CI.
 
 Notes for interpretation:
 
-- `hpanic level=callback` logs each recovered panic to stderr by design
-  (that is the bundled `Hooks` logger working); the scripts silence it.
+- `hpanic level=callback` guards the per-callback recovery of the bundled
+  `internal/hook.Hooks`: the panicking callback is sandwiched so a recover
+  path that panics itself (a zero-value `log.Logger` used to) starves the
+  second counter set and fails the scenario. stderr is silenced by the
+  scripts because the recovery path logs noisily by design.
+- `henqueue` guards the Enqueued contract: every accepted task fires exactly
+  once, including tasks consumed from the overflow buffer, and the dispatch
+  happens outside `taskBuf`'s lock so slow/reentrant callbacks are safe. The
+  reentrancy wave repeats its scenario on fresh pools (`attempts`, default
+  8) because a regression there can be a narrow race; each submit loop runs
+  on a watchdog goroutine, so a self-deadlock is reported as FAIL, not a
+  hang.
 - A scenario pool only asserts what is a real happens-before guarantee.
   Enqueued may legitimately land after Started when a worker dequeues the
-  task before the submitter's enqueue callback runs, so no `h*` assertion
-  depends on Enqueued-vs-Started ordering.
+  task before the submitter's enqueue callback runs (on the buffer path it
+  may even land after Completed); nothing here asserts Enqueued ordering,
+  only its count.
 
 ## 7. Status and notes
 
@@ -292,6 +310,16 @@ Notes for interpretation:
   callback slices. Scenarios follow the contract: they register before the
   first task (`hchurn` stresses exactly that window) and never call `Add*`
   from a running pool.
+- Defects this suite found and that are now fixed (kept as regression
+  coverage by `hpanic level=callback` and `henqueue`):
+  1. `internal/hook.Hooks.logger` was a zero-value `log.Logger`, so
+     `invoke`'s recover path panicked while logging a recovered callback
+     panic and skipped the remaining callbacks of that event.
+  2. Tasks consumed from the overflow buffer via `PopBatch` never fired
+     Enqueued, and when a forward succeeded Enqueued was dispatched while
+     `taskBuf`'s lock was held, stalling the buffer and risking a reentrant
+     self-deadlock. Enqueued is now dispatched exactly once per accepted
+     task, outside the buffer lock.
 - Metrics CSV/JSON columns and formats are preserved from the legacy tool
   column for column (the CSV header is written on the first tick).
 - `--hook mode=trace` is intentionally rejected until the upstream

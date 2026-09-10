@@ -99,10 +99,10 @@ func (hchurnPlugin) Run(ctx context.Context, rt *Runtime, args []string) error {
 			for i := 0; i < adds; i++ {
 				// One hook per event type per iteration, so every event
 				// list deterministically receives churners*adds burst hooks.
-				churn.AddTaskSubmitted(func(context.Context, agilepool.Task) { burst.Submitted.Add(1) })
-				churn.AddTaskEnqueued(func(context.Context, agilepool.Task) { burst.Enqueued.Add(1) })
-				churn.AddTaskStarted(func(context.Context, agilepool.Task) { burst.Started.Add(1) })
-				churn.AddTaskCompleted(func(context.Context, agilepool.Task, any) { burst.Completed.Add(1) })
+				churn.AddTaskSubmitted(func(context.Context) { burst.Submitted.Add(1) })
+				churn.AddTaskEnqueued(func(context.Context) { burst.Enqueued.Add(1) })
+				churn.AddTaskStarted(func(context.Context) { burst.Started.Add(1) })
+				churn.AddTaskCompleted(func(context.Context, any) { burst.Completed.Add(1) })
 			}
 		}()
 	}

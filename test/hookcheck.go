@@ -47,10 +47,10 @@ type counters struct {
 // its own counter, so a scenario can install "many hooks" cheaply.
 func (c *counters) addTo(h *hook.Hooks, n int) {
 	for i := 0; i < n; i++ {
-		h.AddTaskSubmitted(func(context.Context, agilepool.Task) { c.Submitted.Add(1) })
-		h.AddTaskEnqueued(func(context.Context, agilepool.Task) { c.Enqueued.Add(1) })
-		h.AddTaskStarted(func(context.Context, agilepool.Task) { c.Started.Add(1) })
-		h.AddTaskCompleted(func(context.Context, agilepool.Task, any) { c.Completed.Add(1) })
+		h.AddTaskSubmitted(func(context.Context) { c.Submitted.Add(1) })
+		h.AddTaskEnqueued(func(context.Context) { c.Enqueued.Add(1) })
+		h.AddTaskStarted(func(context.Context) { c.Started.Add(1) })
+		h.AddTaskCompleted(func(context.Context, any) { c.Completed.Add(1) })
 	}
 }
 
@@ -68,39 +68,39 @@ type panicHooks struct {
 	panicValue any
 }
 
-func (p *panicHooks) DispatchTaskSubmitted(ctx context.Context, t agilepool.Task) {
+func (p *panicHooks) DispatchTaskSubmitted(ctx context.Context) {
 	if p.panicWhen("submitted") {
 		panic(p.panicValue)
 	}
 	if p.h != nil {
-		p.h.DispatchTaskSubmitted(ctx, t)
+		p.h.DispatchTaskSubmitted(ctx)
 	}
 }
 
-func (p *panicHooks) DispatchTaskEnqueued(ctx context.Context, t agilepool.Task) {
+func (p *panicHooks) DispatchTaskEnqueued(ctx context.Context) {
 	if p.panicWhen("enqueued") {
 		panic(p.panicValue)
 	}
 	if p.h != nil {
-		p.h.DispatchTaskEnqueued(ctx, t)
+		p.h.DispatchTaskEnqueued(ctx)
 	}
 }
 
-func (p *panicHooks) DispatchTaskStarted(ctx context.Context, t agilepool.Task) {
+func (p *panicHooks) DispatchTaskStarted(ctx context.Context) {
 	if p.panicWhen("started") {
 		panic(p.panicValue)
 	}
 	if p.h != nil {
-		p.h.DispatchTaskStarted(ctx, t)
+		p.h.DispatchTaskStarted(ctx)
 	}
 }
 
-func (p *panicHooks) DispatchTaskCompleted(ctx context.Context, t agilepool.Task, rec any) {
+func (p *panicHooks) DispatchTaskCompleted(ctx context.Context, rec any) {
 	if p.panicWhen("completed") {
 		panic(p.panicValue)
 	}
 	if p.h != nil {
-		p.h.DispatchTaskCompleted(ctx, t, rec)
+		p.h.DispatchTaskCompleted(ctx, rec)
 	}
 }
 

@@ -63,10 +63,10 @@ func (hookPlugin) Run(ctx context.Context, rt *Runtime, args []string) error {
 			return err
 		}
 		h := hook.NewHooks()
-		h.AddTaskSubmitted(func(context.Context, agilepool.Task) { stats.Submitted.Add(1) })
-		h.AddTaskEnqueued(func(context.Context, agilepool.Task) { stats.Enqueued.Add(1) })
-		h.AddTaskStarted(func(context.Context, agilepool.Task) { stats.Started.Add(1) })
-		h.AddTaskCompleted(func(context.Context, agilepool.Task, any) { stats.Completed.Add(1) })
+		h.AddTaskSubmitted(func(context.Context) { stats.Submitted.Add(1) })
+		h.AddTaskEnqueued(func(context.Context) { stats.Enqueued.Add(1) })
+		h.AddTaskStarted(func(context.Context) { stats.Started.Add(1) })
+		h.AddTaskCompleted(func(context.Context, any) { stats.Completed.Add(1) })
 		if err := p.SetHook(h); err != nil {
 			return err
 		}

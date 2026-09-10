@@ -3,3 +3,9 @@
 *.bak
 *.txt
 *.log
+
+test/*.csv
+test/*.svg
+test/*.json
+test/*.prof
+test/*.exe

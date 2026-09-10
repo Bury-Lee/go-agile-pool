@@ -43,6 +43,7 @@ FAIL). They are deliberately dependency-free so `--hcount` alone works:
 | `--hchurn` | concurrent registration burst before dispatch (contract window), exact accounting | `num`(10000) `num2`(5000) `churners`(4) `adds`(25) |
 | `--hreenter` | reentrant dispatch: hooks that submit new tasks | `num`(2000) `budget`(2000) `depth`(32) `stage`(submitted/completed) |
 | `--hclose` | OnPoolClosed exactly-once (incl. racing Close) and post-close silence | `num`(2000) `closers`(4) |
+| `--henqueue` | Enqueued accounting on the overflow buffer (queue << num), slow and reentrant Enqueued callbacks | `num`(2000) `reenter`(500) `workers`(1) `queue`(2) `delay-us`(50) `submitters`(1) `rtask-us`(100) `attempts`(8) |
 
 Submit strategies: immediate / linear / constant / poisson / phased. Task
 duration types: fixed / uniform / normal. Dependencies:
@@ -120,7 +121,7 @@ test/
   example.go        demo plugins provider/consumer (not registered by default)
   pool.go ...       the six real plugins (one file per plugin)
   hookcheck.go      shared machinery for the h* stability family
-  hcount.go ...     the eight h* hook-stability plugins (h*.go, one per file)
+  hcount.go ...     the nine h* hook-stability plugins (h*.go, one per file)
   run_test.bat      Windows regression script (new syntax)
   run_test.sh       Linux/macOS regression script (same scenarios as the bat)
   run_hook_stress.bat/.sh  hook-stability scenario scripts (optional `race` arg)

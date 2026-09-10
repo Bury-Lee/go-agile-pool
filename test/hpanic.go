@@ -4,8 +4,11 @@ package main
 //
 //   - level=callback: every registered callback of the stage under test
 //     panics; internal/hook.Hooks must recover each one (invoke) while the
-//     counting callbacks registered before them keep receiving events, and
-//     the pool keeps executing tasks.
+//     counting callbacks registered before AND after them keep receiving
+//     events, and the pool keeps executing tasks. The panicking callback is
+//     deliberately sandwiched: a recover path that panics itself (e.g. a nil
+//     logger) aborts the rest of the callback list and starves the "after"
+//     counters, which must fail this scenario.
 //   - level=dispatch: the whole hooks implementation panics at the dispatch
 //     entry of the stage under test; pool.dispatchHook must recover it and
 //     keep the submission/worker/Close paths and their bookkeeping intact.
@@ -17,6 +20,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -67,10 +71,16 @@ func (hpanicPlugin) Run(ctx context.Context, rt *Runtime, args []string) error {
 	}
 
 	baseline := goroutineBaseline()
+	// Run every stage even after a failure, so the output lists all broken
+	// lifecycle points instead of only the first one.
+	var failures []string
 	for _, s := range stages {
 		if err := runPanicStage(rt, s, level, num); err != nil {
-			return err
+			failures = append(failures, fmt.Sprintf("%s: %v", s, err))
 		}
+	}
+	if len(failures) > 0 {
+		return fmt.Errorf("%d/%d stage(s) failed: %s", len(failures), len(stages), strings.Join(failures, " | "))
 	}
 	if !settleGoroutines(baseline, 4, 5*time.Second) {
 		return report("hpanic", rt, false,
@@ -90,33 +100,30 @@ func runPanicStage(rt *Runtime, stage, level string, num int) error {
 
 	var executed atomic.Int64
 	panicFn := func() { panic(panicMsg) }
-	countStage := map[string]func(*counters) *atomic.Int64{
-		"submitted": func(c *counters) *atomic.Int64 { return &c.Submitted },
-		"enqueued":  func(c *counters) *atomic.Int64 { return &c.Enqueued },
-		"started":   func(c *counters) *atomic.Int64 { return &c.Started },
-		"completed": func(c *counters) *atomic.Int64 { return &c.Completed },
-	}
 
 	var want int64 = int64(num)
 	if level == "callback" {
 		h := hook.NewHooks()
-		var cnt counters
-		cnt.addTo(h, 1)
-		// The panicking callback sits after the counters: the counters must
-		// still see every event even though a sibling callback panics.
+		// The panicking callback sits BETWEEN two counter sets: recovery is
+		// per callback, so both siblings must still see every event. This is
+		// the assertion that catches a recovery path which panics itself
+		// (e.g. the zero-value Hooks logger): the remainder of the callback
+		// list is aborted and the "after" set goes to zero.
+		var before, after counters
+		before.addTo(h, 1)
 		switch stage {
 		case "submitted":
-			h.AddTaskSubmitted(func(context.Context, agilepool.Task) { panicFn() })
+			h.AddTaskSubmitted(func(context.Context) { panicFn() })
 		case "enqueued":
-			h.AddTaskEnqueued(func(context.Context, agilepool.Task) { panicFn() })
+			h.AddTaskEnqueued(func(context.Context) { panicFn() })
 		case "started":
-			h.AddTaskStarted(func(context.Context, agilepool.Task) { panicFn() })
+			h.AddTaskStarted(func(context.Context) { panicFn() })
 		case "completed":
-			h.AddTaskCompleted(func(context.Context, agilepool.Task, any) { panicFn() })
+			h.AddTaskCompleted(func(context.Context, any) { panicFn() })
 		case "closed":
 			h.AddPoolClosed(func(*agilepool.Pool) { panicFn() })
-			want = 0 // PoolClosed carries no per-task counter
 		}
+		after.addTo(h, 1)
 		if err := p.SetHook(h); err != nil {
 			return err
 		}
@@ -127,14 +134,14 @@ func runPanicStage(rt *Runtime, stage, level string, num int) error {
 		if stage == "closed" {
 			p.Close()
 		}
-		if stage != "closed" {
-			s, e, st, c := cnt.snapshot()
-			got := countStage[stage](&cnt).Load()
-			if got != want {
-				return report("hpanic", rt, false,
-					"[%s/callback] counter %s = %d, want %d (S=%d E=%d St=%d C=%d)",
-					stage, stage, got, want, s, e, st, c)
-			}
+		bs, be, bst, bc := before.snapshot()
+		as, ae, ast, ac := after.snapshot()
+		if err := report("hpanic", rt,
+			bs == want && be == want && bst == want && bc == want &&
+				as == want && ae == want && ast == want && ac == want,
+			"[%s/callback] sibling counter sets saw every event: before(S=%d E=%d St=%d C=%d) after(S=%d E=%d St=%d C=%d), want all == %d",
+			stage, bs, be, bst, bc, as, ae, ast, ac, want); err != nil {
+			return err
 		}
 		if err := report("hpanic", rt, executed.Load() == int64(num),
 			"[%s/callback] %d tasks executed despite panicking %s hook", stage, executed.Load(), stage); err != nil {

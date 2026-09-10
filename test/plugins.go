@@ -21,6 +21,7 @@ var allPlugins = []Plugin{
 	hchurnPlugin{},
 	hreenterPlugin{},
 	hclosePlugin{},
+	henqueuePlugin{},
 	&metricsPlugin{},
 	&profilePlugin{},
 }

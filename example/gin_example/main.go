@@ -45,15 +45,15 @@ func main() {
 	_ = r.Run("127.0.0.1:8080")
 }
 
-func onSubmitted(ctx context.Context, task agilepool.Task) {
-	log.Printf("task submitted task=%T", task)
+func onSubmitted(ctx context.Context) {
+	log.Printf("task submitted")
 }
 
-func onEnqueued(ctx context.Context, task agilepool.Task) {
-	log.Printf("task enqueued task=%T", task)
+func onEnqueued(ctx context.Context) {
+	log.Printf("task enqueued")
 }
 
-func onStarted(ctx context.Context, task agilepool.Task) {
+func onStarted(ctx context.Context) {
 	if c, ok := ctx.(*gin.Context); ok {
 		traceID, _ := c.Get("traceID")
 		taskStartTimes.Store(traceID, time.Now())
@@ -61,7 +61,7 @@ func onStarted(ctx context.Context, task agilepool.Task) {
 	}
 }
 
-func onCompleted(ctx context.Context, task agilepool.Task, recovered any) {
+func onCompleted(ctx context.Context, recovered any) {
 	if c, ok := ctx.(*gin.Context); ok {
 		traceID, _ := c.Get("traceID")
 		if started, exists := taskStartTimes.LoadAndDelete(traceID); exists {

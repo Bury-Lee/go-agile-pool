@@ -217,13 +217,11 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 		}
 	}
 	hookCtx := context.Background()
-	hookTask := task
 	if wrapped, ok := task.(*contextTask); ok {
 		hookCtx = wrapped.ctx
-		hookTask = wrapped.task
 	}
 	p.dispatchHook(func(h hooks) {
-		h.DispatchTaskSubmitted(hookCtx, hookTask)
+		h.DispatchTaskSubmitted(hookCtx)
 	})
 	if p.config.workMode == NONBLOCK {
 		select {
@@ -246,7 +244,6 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 	result := p.taskBuf.PushAndForward(task, func(t Task) bool {
 		select {
 		case p.taskQueue <- t:
-			p.dispatchTaskEnqueuedFor(t)
 			return true
 		default:
 			return false
@@ -274,6 +271,14 @@ func (p *Pool) submit(ctx context.Context, task Task) bool {
 			return false
 		}
 	default:
+		// taskBufferAccepted: the task now lives in the overflow buffer, so
+		// it is enqueued in the pool's sense and must fire Enqueued exactly
+		// once. Dispatch after PushAndForward returned, i.e. outside the
+		// buffer lock, so a slow or reentrant callback cannot stall buffer
+		// access or self-deadlock on taskMu. The trade off is ordering: a
+		// worker may already have consumed the task, so Enqueued can be
+		// observed after Started (and, rarely, after Completed).
+		p.dispatchTaskEnqueuedFor(task)
 		return true
 	}
 }
@@ -282,10 +287,9 @@ func (p *Pool) dispatchTaskEnqueuedFor(task Task) {
 	ctx := context.Background()
 	if wrapped, ok := task.(*contextTask); ok {
 		ctx = wrapped.ctx
-		task = wrapped.task
 	}
 	p.dispatchHook(func(h hooks) {
-		h.DispatchTaskEnqueued(ctx, task)
+		h.DispatchTaskEnqueued(ctx)
 	})
 }
 

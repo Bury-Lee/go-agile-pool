@@ -59,10 +59,10 @@ func (hblockPlugin) Run(ctx context.Context, rt *Runtime, args []string) error {
 	h := hook.NewHooks()
 	var cnt counters
 	slow := func() { time.Sleep(time.Duration(delayUs) * time.Microsecond) }
-	h.AddTaskSubmitted(func(context.Context, agilepool.Task) { slow(); cnt.Submitted.Add(1) })
-	h.AddTaskEnqueued(func(context.Context, agilepool.Task) { slow(); cnt.Enqueued.Add(1) })
-	h.AddTaskStarted(func(context.Context, agilepool.Task) { slow(); cnt.Started.Add(1) })
-	h.AddTaskCompleted(func(context.Context, agilepool.Task, any) { slow(); cnt.Completed.Add(1) })
+	h.AddTaskSubmitted(func(context.Context) { slow(); cnt.Submitted.Add(1) })
+	h.AddTaskEnqueued(func(context.Context) { slow(); cnt.Enqueued.Add(1) })
+	h.AddTaskStarted(func(context.Context) { slow(); cnt.Started.Add(1) })
+	h.AddTaskCompleted(func(context.Context, any) { slow(); cnt.Completed.Add(1) })
 	if err := p.SetHook(h); err != nil {
 		return err
 	}

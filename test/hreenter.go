@@ -99,9 +99,9 @@ func (hreenterPlugin) Run(ctx context.Context, rt *Runtime, args []string) error
 		p.Submit(task())
 	}
 	if stage == "submitted" {
-		h.AddTaskSubmitted(func(context.Context, agilepool.Task) { reenter() })
+		h.AddTaskSubmitted(func(context.Context) { reenter() })
 	} else {
-		h.AddTaskCompleted(func(context.Context, agilepool.Task, any) { reenter() })
+		h.AddTaskCompleted(func(context.Context, any) { reenter() })
 	}
 	if err := p.SetHook(h); err != nil {
 		return err

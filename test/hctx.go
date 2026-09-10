@@ -58,22 +58,22 @@ func (hctxPlugin) Run(ctx context.Context, rt *Runtime, args []string) error {
 
 	install := func(p *agilepool.Pool) error {
 		h := hook.NewHooks()
-		h.AddTaskSubmitted(func(ctx context.Context, _ agilepool.Task) {
+		h.AddTaskSubmitted(func(ctx context.Context) {
 			if _, ok := ctx.Value(ctxMarkerKey{}).(int); !ok {
 				badCtx.Add(1)
 			}
 		})
-		h.AddTaskEnqueued(func(ctx context.Context, _ agilepool.Task) {
+		h.AddTaskEnqueued(func(ctx context.Context) {
 			if _, ok := ctx.Value(ctxMarkerKey{}).(int); !ok {
 				badCtx.Add(1)
 			}
 		})
-		h.AddTaskStarted(func(ctx context.Context, _ agilepool.Task) {
+		h.AddTaskStarted(func(ctx context.Context) {
 			if _, ok := ctx.Value(ctxMarkerKey{}).(int); !ok {
 				badCtx.Add(1)
 			}
 		})
-		h.AddTaskCompleted(func(ctx context.Context, _ agilepool.Task, _ any) {
+		h.AddTaskCompleted(func(ctx context.Context, _ any) {
 			if _, ok := ctx.Value(ctxMarkerKey{}).(int); !ok {
 				badCtx.Add(1)
 			}
@@ -165,7 +165,7 @@ func (hctxPlugin) Run(ctx context.Context, rt *Runtime, args []string) error {
 		dst, dc, queued); err != nil {
 		return err
 	}
-	if err := report("hctx", rt, execDone >= 0 && execDone <= int64(queued) && de <= ds && dst <= ds,
+	if err := report("hctx", rt, execDone <= int64(queued) && de <= ds && dst <= ds,
 		"[cancel-queued] %d/%d bodies ran before cancellation, hooks stayed symmetric", execDone, queued); err != nil {
 		return err
 	}

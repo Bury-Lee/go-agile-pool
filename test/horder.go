@@ -132,7 +132,7 @@ func (horderPlugin) Run(ctx context.Context, rt *Runtime, args []string) error {
 	expectPanic := func(id int) bool { return id < panics }
 
 	h := hook.NewHooks()
-	h.AddTaskSubmitted(func(ctx context.Context, _ agilepool.Task) {
+	h.AddTaskSubmitted(func(ctx context.Context) {
 		id, ok := ctx.Value(orderCtxKey{}).(int)
 		if !ok {
 			badCtx.Add(1)
@@ -141,7 +141,7 @@ func (horderPlugin) Run(ctx context.Context, rt *Runtime, args []string) error {
 		submitted.Add(1)
 		recs[id].fire(orderEvSubmitted)
 	})
-	h.AddTaskEnqueued(func(ctx context.Context, _ agilepool.Task) {
+	h.AddTaskEnqueued(func(ctx context.Context) {
 		id, ok := ctx.Value(orderCtxKey{}).(int)
 		if !ok {
 			badCtx.Add(1)
@@ -150,7 +150,7 @@ func (horderPlugin) Run(ctx context.Context, rt *Runtime, args []string) error {
 		enqueued.Add(1)
 		recs[id].fire(orderEvEnqueued)
 	})
-	h.AddTaskStarted(func(ctx context.Context, _ agilepool.Task) {
+	h.AddTaskStarted(func(ctx context.Context) {
 		id, ok := ctx.Value(orderCtxKey{}).(int)
 		if !ok {
 			badCtx.Add(1)
@@ -159,7 +159,7 @@ func (horderPlugin) Run(ctx context.Context, rt *Runtime, args []string) error {
 		started.Add(1)
 		recs[id].fire(orderEvStarted)
 	})
-	h.AddTaskCompleted(func(ctx context.Context, _ agilepool.Task, recovered any) {
+	h.AddTaskCompleted(func(ctx context.Context, recovered any) {
 		id, ok := ctx.Value(orderCtxKey{}).(int)
 		if !ok {
 			badCtx.Add(1)

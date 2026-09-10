@@ -9,8 +9,8 @@ import (
 	agilepool "github.com/Yiming1997/agilePool/v2"
 )
 
-type TaskHook func(ctx context.Context, task agilepool.Task)
-type TaskCompleteHook func(ctx context.Context, task agilepool.Task, recovered any)
+type TaskHook func(ctx context.Context)
+type TaskCompleteHook func(ctx context.Context, recovered any)
 type PoolHook func(pool *agilepool.Pool)
 
 // Hooks stores and dispatches lifecycle callbacks without depending on the
@@ -26,7 +26,9 @@ type Hooks struct {
 }
 
 func NewHooks() *Hooks {
-	return &Hooks{}
+	return &Hooks{
+		logger: *log.Default(),
+	}
 }
 
 func (h *Hooks) AddTaskSubmitted(fn TaskHook) {
@@ -61,33 +63,33 @@ func (h *Hooks) AddPoolClosed(fn PoolHook) {
 
 // DispatchTaskSubmitted dispatches submission callbacks. It must only be
 // called by the pool submission path.
-func (h *Hooks) DispatchTaskSubmitted(ctx context.Context, task agilepool.Task) {
+func (h *Hooks) DispatchTaskSubmitted(ctx context.Context) {
 	for _, fn := range h.taskSubmitted {
-		h.invoke(func() { fn(ctx, task) }, "OnTaskSubmitted")
+		h.invoke(func() { fn(ctx) }, "OnTaskSubmitted")
 	}
 }
 
 // DispatchTaskEnqueued dispatches enqueue callbacks. It must only be called
 // by the pool enqueue path.
-func (h *Hooks) DispatchTaskEnqueued(ctx context.Context, task agilepool.Task) {
+func (h *Hooks) DispatchTaskEnqueued(ctx context.Context) {
 	for _, fn := range h.taskEnqueued {
-		h.invoke(func() { fn(ctx, task) }, "OnTaskEnqueued")
+		h.invoke(func() { fn(ctx) }, "OnTaskEnqueued")
 	}
 }
 
 // DispatchTaskStarted dispatches start callbacks. It must only be called by
 // the worker execution path.
-func (h *Hooks) DispatchTaskStarted(ctx context.Context, task agilepool.Task) {
+func (h *Hooks) DispatchTaskStarted(ctx context.Context) {
 	for _, fn := range h.taskStarted {
-		h.invoke(func() { fn(ctx, task) }, "OnTaskStarted")
+		h.invoke(func() { fn(ctx) }, "OnTaskStarted")
 	}
 }
 
 // DispatchTaskCompleted dispatches completion callbacks. It must only be
 // called by the worker completion path.
-func (h *Hooks) DispatchTaskCompleted(ctx context.Context, task agilepool.Task, recovered any) {
+func (h *Hooks) DispatchTaskCompleted(ctx context.Context, recovered any) {
 	for _, fn := range h.taskCompleted {
-		h.invoke(func() { fn(ctx, task, recovered) }, "OnTaskCompleted")
+		h.invoke(func() { fn(ctx, recovered) }, "OnTaskCompleted")
 	}
 }
 

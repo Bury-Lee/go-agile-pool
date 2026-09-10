@@ -37,6 +37,7 @@ go-agile-pool 的性能测试工具。完整设计文档与插件编写指南(�
 | `--hchurn` | 分发前多协程并发注册风暴(契约窗口),精确记账 | `num`(10000) `num2`(5000) `churners`(4) `adds`(25) |
 | `--hreenter` | 重入分发:钩子内再提交新任务 | `num`(2000) `budget`(2000) `depth`(32) `stage`(submitted/completed) |
 | `--hclose` | OnPoolClosed 恰好一次(含并发 Close)+ 关闭后静默 | `num`(2000) `closers`(4) |
+| `--henqueue` | 溢出缓冲路径上的 Enqueued 精确记账(queue << num)、慢钩子与重入钩子 | `num`(2000) `reenter`(500) `workers`(1) `queue`(2) `delay-us`(50) `submitters`(1) `rtask-us`(100) `attempts`(8) |
 
 submit 策略:immediate / linear / constant / poisson / phased;任务时长类型:
 fixed / uniform / normal。依赖关系:`submit ← pool+task`,`hook ← pool`,
@@ -102,7 +103,7 @@ test/
   example.go       演示插件 provider/consumer(默认不注册)
   pool.go ...      六个正式插件(一文件一插件)
   hookcheck.go     h* 稳定性家族共用机制
-  hcount.go ...    八个 h* 钩子稳定性插件(h*.go,一文件一插件)
+  hcount.go ...    九个 h* 钩子稳定性插件(h*.go,一文件一插件)
   run_test.bat     Windows 回归脚本(新语法)
   run_test.sh      Linux/macOS 回归脚本(与 bat 同场景)
   run_hook_stress.bat/.sh  钩子稳定性场景脚本(可带 `race` 参数)
