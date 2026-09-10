@@ -21,7 +21,7 @@ import (
 	"time"
 
 	agilepool "github.com/Yiming1997/agilePool/v2"
-	"github.com/Yiming1997/agilePool/v2/internal/hook"
+	"github.com/Yiming1997/agilePool/v2/hook"
 )
 
 // discardLogger swallows pool log lines. Hook-panic scenarios log every

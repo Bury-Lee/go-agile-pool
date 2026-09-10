@@ -132,12 +132,12 @@ func (w *worker) runTask(task Task) {
 			recovered = p
 			w.pool.logger.Printf("worker exits from panic: %v\n%s\n", p, Stack(1))
 		}
-		w.pool.dispatchHook(func(h hooks) {
+		w.pool.dispatchHook(func(h Hooks) {
 			h.DispatchTaskCompleted(hookCtx, recovered)
 		})
 	}()
 
-	w.pool.dispatchHook(func(h hooks) {
+	w.pool.dispatchHook(func(h Hooks) {
 		h.DispatchTaskStarted(hookCtx)
 	})
 	task.process()

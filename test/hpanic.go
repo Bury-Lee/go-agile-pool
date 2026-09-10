@@ -3,7 +3,7 @@ package main
 // hpanic stress-tests panic immunity of the hook system. Two levels:
 //
 //   - level=callback: every registered callback of the stage under test
-//     panics; internal/hook.Hooks must recover each one (invoke) while the
+//     panics; hook.Hooks must recover each one (invoke) while the
 //     counting callbacks registered before AND after them keep receiving
 //     events, and the pool keeps executing tasks. The panicking callback is
 //     deliberately sandwiched: a recover path that panics itself (e.g. a nil
@@ -25,7 +25,7 @@ import (
 	"time"
 
 	agilepool "github.com/Yiming1997/agilePool/v2"
-	"github.com/Yiming1997/agilePool/v2/internal/hook"
+	"github.com/Yiming1997/agilePool/v2/hook"
 )
 
 const panicMsg = "hook stability panic"

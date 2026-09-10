@@ -9,7 +9,7 @@ import (
 
 // panicHooks is a hooks implementation that deliberately panics at selected
 // lifecycle points. It mimics a custom hooks implementation that does not
-// recover its own callbacks (the bundled internal/hook.Hooks does).
+// recover its own callbacks (the bundled hook.Hooks does).
 type panicHooks struct {
 	panicSubmitted  bool
 	panicEnqueued   bool

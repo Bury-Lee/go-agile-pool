@@ -4,7 +4,8 @@ import (
 	"context"
 )
 
-// TaskHook is the callback signature for task lifecycle events.
+// TaskHook is the callback signature for task lifecycle events. The task
+// itself is not passed; use SubmitCtx to carry per-task data through ctx.
 type TaskHook func(ctx context.Context)
 
 // TaskCompleteHook is the callback signature for task completion.
@@ -14,7 +15,11 @@ type TaskCompleteHook func(ctx context.Context, recovered any)
 // PoolHook is the callback signature for pool-level events.
 type PoolHook func(p *Pool)
 
-type hooks interface {
+// Hooks is the lifecycle callback dispatcher accepted by Pool.SetHook. The
+// bundled implementation lives in
+// github.com/Yiming1997/agilePool/v2/hook; custom implementations only need
+// the five dispatch methods below.
+type Hooks interface {
 	// DispatchTaskSubmitted must only be called by the pool submission path.
 	DispatchTaskSubmitted(context.Context)
 	// DispatchTaskEnqueued must only be called by the pool enqueue path. It

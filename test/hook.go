@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 
 	agilepool "github.com/Yiming1997/agilePool/v2"
-	"github.com/Yiming1997/agilePool/v2/internal/hook"
+	"github.com/Yiming1997/agilePool/v2/hook"
 )
 
 // hookStats holds the hook mode and the four lifecycle counters. It is the

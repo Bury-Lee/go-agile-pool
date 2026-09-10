@@ -279,7 +279,7 @@ race-free in CI.
 Notes for interpretation:
 
 - `hpanic level=callback` guards the per-callback recovery of the bundled
-  `internal/hook.Hooks`: the panicking callback is sandwiched so a recover
+  `hook.Hooks`: the panicking callback is sandwiched so a recover
   path that panics itself (a zero-value `log.Logger` used to) starves the
   second counter set and fails the scenario. stderr is silenced by the
   scripts because the recovery path logs noisily by design.
@@ -301,8 +301,8 @@ Notes for interpretation:
 - `test/` is a nested Go module (`github.com/Yiming1997/agilePool/v2/test`,
   own `go.mod`) whose `replace` points the library import at the repo root,
   so the harness builds against the local tree, never the network copy. The
-  module path keeps the library prefix so `internal/hook` stays importable.
-- Registration contract of `internal/hook.Hooks`: callbacks are added
+  harness uses the public `hook` package, the same one external users get.
+- Registration contract of `hook.Hooks`: callbacks are added
   before the pool starts processing (typically from setup code, possibly
   concurrently — `Add*` is mutex-guarded). Dispatch reads the frozen lists
   and never synchronizes with registration; adding a callback while events
@@ -312,7 +312,7 @@ Notes for interpretation:
   from a running pool.
 - Defects this suite found and that are now fixed (kept as regression
   coverage by `hpanic level=callback` and `henqueue`):
-  1. `internal/hook.Hooks.logger` was a zero-value `log.Logger`, so
+  1. `hook.Hooks.logger` was a zero-value `log.Logger`, so
      `invoke`'s recover path panicked while logging a recovered callback
      panic and skipped the remaining callbacks of that event.
   2. Tasks consumed from the overflow buffer via `PopBatch` never fired

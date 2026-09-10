@@ -23,7 +23,7 @@ OnTaskStarted / OnTaskCompleted / OnPoolClosed)。本次为 test 工具新增一
 
 - `test/` 拆分为独立 Go 模块 `github.com/Yiming1997/agilePool/v2/test`,
   `go.mod` 用 `replace => ../` 把库引用指向仓库根目录(离线、严格本地库);
-  模块路径保留库前缀,使 `internal/hook` 可被导入。
+  测试使用公开的 `hook` 包(与外部使用者同一入口)。
 - 每个 h* 插件自建私有池(`queue == 任务数`,走直通 channel 路径,
   保证 Enqueued 每任务恰触发一次),断言 PASS/FAIL,失败退出码 1。
 - 公共机制集中在 `test/hookcheck.go`(场景池、原子计数器、drain/goroutine
@@ -54,7 +54,7 @@ OnTaskStarted / OnTaskCompleted / OnPoolClosed)。本次为 test 工具新增一
 
 ## 5. 关键结论
 
-1. **注册契约**:`internal/hook.Hooks` 的 `Add*` 仅用于启动期(多协程并发
+1. **注册契约**:`hook.Hooks` 的 `Add*` 仅用于启动期(多协程并发
    注册由互斥锁保证);分发读取已冻结的列表。任务运行中注册不属于契约,
    库未做任何改动。
 2. **panic 双保险成立**:callback 层(库内 `invoke` 逐个 recover)与
