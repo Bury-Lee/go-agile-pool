@@ -124,7 +124,7 @@ func (h *Hooks) DispatchPoolClosed(pool *agilepool.Pool) {
 func (h *Hooks) invoke(fn func(), name string) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			h.logger.Printf("hook %s panicked: %v\n%s \n", name, recovered, agilepool.Stack(1))
+			h.logger.Printf("hook %s panicked: %v\n%s \n", name, recovered, agilepool.Stack(2))
 		}
 	}()
 	fn()
