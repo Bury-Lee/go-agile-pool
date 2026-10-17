@@ -88,7 +88,10 @@ type Pool struct {
 	config            *Config
 	lock              *sync.Mutex
 	wg                sync.WaitGroup
-	logger            Logger
+	// logger is read by every goroutine that reports a panic (workers, the
+	// submitting goroutine, Close), so it is stored atomically: SetLogger may
+	// be called while the pool is running.
+	logger atomic.Pointer[Logger]
 	// workerCreateCount counts the total allocations from sync.Pool.New
 	// over the pool lifetime. For the number of currently active workers,
 	// use GetRunningWorkersNum().
@@ -125,11 +128,12 @@ func NewPool(c *Config) *Pool {
 		config:       c,
 		lock:         &sync.Mutex{},
 		muIdle:       &sync.Mutex{}, // default value, overridden below based on config
-		logger:       log.Default(),
 		capacity:     c.workerNumCapacity,
 		taskBuf:      newChunkedTaskBuffer(),
 		panicHandler: c.panicHandler,
 	}
+	defaultLogger := Logger(log.Default())
+	p.logger.Store(&defaultLogger)
 
 	// Shard the handoff queue so a very large worker count does not serialise
 	// on a single channel lock. Each shard gets at least one slot and the
@@ -217,8 +221,22 @@ func resolveTaskQueueShards(c *Config) int {
 // SetLogger replaces the default standard-library logger.
 // Pass the same logger instance used elsewhere in your application
 // (e.g. zap.SugaredLogger) so pool output appears in the same log stream.
+//
+// It is safe to call SetLogger while the pool is running tasks: the logger is
+// read atomically by every logging path (task panics, hook panics and panic
+// handlers). Passing nil restores the standard-library logger.
 func (p *Pool) SetLogger(l Logger) {
-	p.logger = l
+	p.logger.Store(&l)
+}
+
+// getLogger returns the currently configured logger, falling back to the
+// standard-library logger when none is installed (including after
+// SetLogger(nil)).
+func (p *Pool) getLogger() Logger {
+	if lp := p.logger.Load(); lp != nil && *lp != nil {
+		return *lp
+	}
+	return log.Default()
 }
 
 func (p *Pool) Submit(task Task) {
@@ -700,7 +718,7 @@ func (p *Pool) dispatchHook(fn func(h Hooks)) {
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			p.logger.Printf("hook dispatch panicked: %v\n%s\n", r, Stack(1))
+			p.getLogger().Printf("hook dispatch panicked: %v\n%s\n", r, Stack(1))
 		}
 	}()
 	fn(p.hooks)
@@ -715,12 +733,12 @@ func (p *Pool) dispatchHook(fn func(h Hooks)) {
 func (p *Pool) handlePanic(task Task, recovered any, stack []byte) {
 	handler := p.panicHandler
 	if handler == nil {
-		p.logger.Printf("worker exits from panic: %v\n%s\n", recovered, stack)
+		p.getLogger().Printf("worker exits from panic: %v\n%s\n", recovered, stack)
 		return
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			p.logger.Printf("panic handler panicked: %v\n%s\n", r, Stack(1))
+			p.getLogger().Printf("panic handler panicked: %v\n%s\n", r, Stack(1))
 		}
 	}()
 	handler(task, recovered, stack)
