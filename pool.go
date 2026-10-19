@@ -42,10 +42,16 @@ const (
 	maxAutoShards = 32
 )
 
+// WorkMode controls how submission behaves when the pool cannot accept a task
+// immediately.
 type WorkMode int8
 
 const (
+	// BLOCK makes the submitter wait until the task is accepted or the pool
+	// closes.
 	BLOCK WorkMode = iota
+	// NONBLOCK rejects the task immediately when it cannot be accepted; use
+	// TrySubmit to observe the rejection.
 	NONBLOCK
 )
 
@@ -72,6 +78,9 @@ func GetDefaultPool() *Pool {
 	return p
 }
 
+// Pool is a goroutine pool with adaptive worker scaling, bounded concurrency,
+// idle-worker reuse and an overflow task buffer. Create one with NewPool and
+// release its resources with Close; call Wait for graceful shutdown.
 type Pool struct {
 	taskQueues        []chan Task // sharded handoff queues; len is a power of two
 	shardMask         uint64      // len(taskQueues)-1, enables mask-based shard selection
@@ -119,6 +128,8 @@ type Pool struct {
 	panicHandler PanicHandler // custom task-panic handler (nil keeps default logging)
 }
 
+// NewPool creates a pool from c and starts its background cleaner, sampler and
+// scaler goroutines. A nil Config uses the NewConfig defaults.
 func NewPool(c *Config) *Pool {
 	if c == nil {
 		c = NewConfig()
@@ -239,6 +250,9 @@ func (p *Pool) getLogger() Logger {
 	return log.Default()
 }
 
+// Submit enqueues task for asynchronous execution. A nil task is ignored.
+// Whether a saturated pool makes the caller wait depends on the configured
+// WorkMode.
 func (p *Pool) Submit(task Task) {
 	if isNilTask(task) {
 		return
@@ -258,6 +272,9 @@ func (p *Pool) TrySubmit(task Task) bool {
 	return p.submit(context.Background(), task)
 }
 
+// SubmitCtx enqueues task together with ctx. A task whose ctx is already done
+// is dropped, and a caller waiting on a saturated pool stops waiting when ctx
+// is cancelled.
 func (p *Pool) SubmitCtx(ctx context.Context, task Task) {
 	if isNilTask(task) {
 		return
@@ -643,6 +660,8 @@ func (p *Pool) Close() {
 	})
 }
 
+// Wait blocks until every accepted task has completed. It does not stop the
+// pool; call Close afterwards to release the background goroutines.
 func (p *Pool) Wait() {
 	p.wg.Wait()
 }
@@ -652,6 +671,8 @@ func (p *Pool) done() {
 	p.wg.Done()
 }
 
+// GetRunningWorkersNum returns the number of workers currently executing
+// tasks, excluding workers parked in the idle container.
 func (p *Pool) GetRunningWorkersNum() int64 {
 	return atomic.LoadInt64(&p.runningWorkersNum)
 }

@@ -27,11 +27,14 @@ const (
 //	SpinLock   = spin lock, suitable for very short hold times under high contention (recommended with RingQueue)
 type LockType int8
 
+// Supported lock implementations for the idle-worker container.
 const (
 	MutexLock LockType = iota // sync.Mutex (default, compatible with existing behavior)
 	SpinLock                  // spin lock (CAS + exponential backoff, no kernel involvement)
 )
 
+// Config holds the tunable parameters of a Pool. Build one with NewConfig and
+// the With* options; the zero value is not intended for direct use.
 type Config struct {
 	cleanPeriod        time.Duration
 	taskQueueSize      int64 // total capacity of the internal handoff queues
@@ -47,6 +50,7 @@ type Config struct {
 	panicHandler       PanicHandler  // custom task-panic handler (nil keeps default logging)
 }
 
+// ConfigOption mutates a Config while NewConfig is building it.
 type ConfigOption func(*Config)
 
 // PanicHandler is invoked when a task panics while running inside a worker.
@@ -63,6 +67,7 @@ type ConfigOption func(*Config)
 // skip task-completion bookkeeping; see Pool.handlePanic.
 type PanicHandler func(task Task, recovered any, stack []byte)
 
+// NewConfig returns a Config populated with defaults and applies opts in order.
 func NewConfig(opts ...ConfigOption) *Config {
 	config := &Config{
 		cleanPeriod:        defaultCleanPeriod,
@@ -82,6 +87,8 @@ func NewConfig(opts ...ConfigOption) *Config {
 	return config
 }
 
+// WithCleanPeriod sets how often the idle-worker cleaner runs. Non-positive
+// values are ignored.
 func WithCleanPeriod(duration time.Duration) ConfigOption {
 	return func(c *Config) {
 		if duration > 0 {
@@ -113,6 +120,8 @@ func WithTaskQueueShards(n int) ConfigOption {
 	}
 }
 
+// WithWorkerNumCapacity caps the maximum number of concurrent workers.
+// Non-positive values are ignored, leaving the default unbounded capacity.
 func WithWorkerNumCapacity(capacity int64) ConfigOption {
 	return func(c *Config) {
 		if capacity > 0 {
@@ -121,18 +130,25 @@ func WithWorkerNumCapacity(capacity int64) ConfigOption {
 	}
 }
 
+// WithBlockMode selects the submission policy when the pool is saturated:
+// BLOCK waits for capacity, NONBLOCK rejects tasks that cannot be accepted
+// immediately.
 func WithBlockMode(workMode WorkMode) ConfigOption {
 	return func(c *Config) {
 		c.workMode = workMode
 	}
 }
 
+// WithIdleContainerType selects the idle-worker container implementation:
+// LinkedListType, MinHeapType, SliceType, RingQueueType or TreapType.
 func WithIdleContainerType(containerType IdleContainerType) ConfigOption {
 	return func(c *Config) {
 		c.idleContainerType = containerType
 	}
 }
 
+// WithStatsSamplePeriod sets the interval at which submit, consume and exit
+// rates are sampled for adaptive scaling. Non-positive values are ignored.
 func WithStatsSamplePeriod(d time.Duration) ConfigOption {
 	return func(c *Config) {
 		if d > 0 {
@@ -141,6 +157,8 @@ func WithStatsSamplePeriod(d time.Duration) ConfigOption {
 	}
 }
 
+// WithStatsWindowSize sets how many recent rate samples the scaler keeps in
+// its histograms. Non-positive values are ignored.
 func WithStatsWindowSize(n int) ConfigOption {
 	return func(c *Config) {
 		if n > 0 {
@@ -149,6 +167,8 @@ func WithStatsWindowSize(n int) ConfigOption {
 	}
 }
 
+// WithScalerPeriod sets how often the scaler adjusts the worker count.
+// Non-positive values are ignored.
 func WithScalerPeriod(d time.Duration) ConfigOption {
 	return func(c *Config) {
 		if d > 0 {
@@ -169,6 +189,8 @@ func WithLockType(lockType LockType) ConfigOption {
 	}
 }
 
+// WithBacklogDecayFactor weights the queued backlog in the scaler's target
+// worker count. Valid values are in [0, 1]; anything else is ignored.
 func WithBacklogDecayFactor(factor float64) ConfigOption {
 	return func(c *Config) {
 		if factor >= 0 && factor <= 1 {
