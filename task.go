@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+// Task is a unit of work executed by a worker. Use NewTask, TaskFunc,
+// TaskWithRetry or UpdateTask to build one.
 type Task interface {
 	process()
 }
@@ -14,12 +16,16 @@ func NewTask(fn func() error) Task {
 	return TaskFunc(fn)
 }
 
+// TaskFunc adapts a plain function to Task.
 type TaskFunc func() error
 
 func (tf TaskFunc) process() {
 	tf()
 }
 
+// TaskWithRetry runs Task up to RetryNum additional times with exponential
+// backoff whenever it returns an error. BackOffStrategy replaces the default
+// backoff schedule when set.
 type TaskWithRetry struct {
 	MinBackOff      time.Duration
 	MaxBackOff      time.Duration
