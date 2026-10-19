@@ -3,6 +3,7 @@
 *.bak
 *.txt
 *.log
+/coverage.out
 
 test/*.csv
 test/*.svg

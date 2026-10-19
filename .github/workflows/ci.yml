@@ -19,5 +19,13 @@ jobs:
         run: go build ./...
       - name: Vet
         run: go vet ./...
-      - name: Test (short, race)
-        run: go test -short -race ./... -timeout 15m
+      - name: Test (short, race, coverage)
+        run: go test -short -race -covermode=atomic -coverprofile=coverage.out ./... -timeout 15m
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.out
+          flags: unittests
+          name: go-${{ github.ref_name }}
+          fail_ci_if_error: false
